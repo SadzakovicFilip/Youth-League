@@ -1,98 +1,298 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { supabase } from '@/lib/supabase';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [role, setRole] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loadingRoles, setLoadingRoles] = useState(true);
+  const [result, setResult] = useState('');
+  const [myRole, setMyRole] = useState('');
+  const [allowedRoles, setAllowedRoles] = useState<string[]>([]);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  useEffect(() => {
+    const loadPermissions = async () => {
+      setLoadingRoles(true);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setAllowedRoles([]);
+        setMyRole('');
+        setLoadingRoles(false);
+        return;
+      }
+
+      const { data: roleRow, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (roleError || !roleRow?.role) {
+        setAllowedRoles([]);
+        setMyRole('');
+        setLoadingRoles(false);
+        return;
+      }
+
+      setMyRole(roleRow.role);
+
+      const { data: rules, error: rulesError } = await supabase
+        .from('role_creation_rules')
+        .select('child_role')
+        .eq('parent_role', roleRow.role);
+
+      if (rulesError || !rules) {
+        setAllowedRoles([]);
+        setRole('');
+        setLoadingRoles(false);
+        return;
+      }
+
+      const uniqueChildRoles = [...new Set(rules.map((rule) => rule.child_role).filter(Boolean))];
+      setAllowedRoles(uniqueChildRoles);
+      setRole(uniqueChildRoles[0] ?? '');
+      setLoadingRoles(false);
+    };
+
+    loadPermissions();
+  }, []);
+
+  const onLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace('/login');
+  };
+
+  const onCreateManagedUser = async () => {
+    if (!role || !username || !password) {
+      setResult('Role, username i password su obavezni.');
+      return;
+    }
+    if (!allowedRoles.includes(role)) {
+      setResult('Nemate dozvolu da kreirate ovu rolu.');
+      return;
+    }
+
+    setLoading(true);
+    setResult('');
+
+    const { data, error } = await supabase.functions.invoke('create-managed-user', {
+      body: {
+        role,
+        username,
+        password,
+        display_name: displayName || undefined,
+        first_name: firstName || undefined,
+        last_name: lastName || undefined,
+        birth_date: birthDate || undefined,
+        address: address || undefined,
+        phone: phone || undefined,
+      },
+    });
+
+    if (error) {
+      let rawDetails = '';
+      try {
+        const rawText = await error.context?.text?.();
+        rawDetails = rawText ? ` | RAW: ${rawText}` : '';
+      } catch {
+        rawDetails = '';
+      }
+
+      setResult(`ERROR: ${error.message}${rawDetails}`);
+      setLoading(false);
+      return;
+    }
+
+    setResult(`OK: ${JSON.stringify(data)}`);
+    setLoading(false);
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <ThemedText type="title">Create Managed User (Test)</ThemedText>
+      <ThemedText style={styles.helpText}>
+        Ovaj ekran je privremeni test za Edge funkciju `create-managed-user`.
+      </ThemedText>
+      {myRole ? <ThemedText>Ulogovana rola: {myRole}</ThemedText> : null}
+
+      {loadingRoles ? (
+        <View style={styles.centerRow}>
+          <ActivityIndicator />
+        </View>
+      ) : allowedRoles.length === 0 ? (
+        <ThemedView style={styles.resultBox}>
+          <ThemedText>Ova rola nema dozvolu za kreiranje novih korisnika.</ThemedText>
+        </ThemedView>
+      ) : (
+        <>
+          <ThemedView style={styles.fieldGroup}>
+            <ThemedText>Role *</ThemedText>
+            <View style={styles.roleList}>
+              {allowedRoles.map((roleOption) => (
+                <Pressable
+                  key={roleOption}
+                  onPress={() => setRole(roleOption)}
+                  style={[styles.roleChip, role === roleOption && styles.roleChipActive]}>
+                  <ThemedText style={role === roleOption ? styles.roleChipTextActive : undefined}>{roleOption}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          </ThemedView>
+
+          <Field label="Username *" value={username} onChangeText={setUsername} placeholder="npr. delegat.test1" />
+          <Field
+            label="Password *"
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Strong password"
+            secureTextEntry
+          />
+          <Field label="Display name" value={displayName} onChangeText={setDisplayName} />
+          <Field label="First name" value={firstName} onChangeText={setFirstName} />
+          <Field label="Last name" value={lastName} onChangeText={setLastName} />
+          <Field label="Birth date (YYYY-MM-DD)" value={birthDate} onChangeText={setBirthDate} />
+          <Field label="Address" value={address} onChangeText={setAddress} />
+          <Field label="Phone" value={phone} onChangeText={setPhone} />
+
+          <Pressable
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={onCreateManagedUser}
+            disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <ThemedText style={styles.buttonText}>Create user</ThemedText>}
+          </Pressable>
+        </>
+      )}
+      <Pressable style={styles.secondaryButton} onPress={onLogout}>
+        <ThemedText style={styles.secondaryButtonText}>Logout</ThemedText>
+      </Pressable>
+
+      {result ? (
+        <ThemedView style={styles.resultBox}>
+          <ThemedText>{result}</ThemedText>
+        </ThemedView>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+type FieldProps = {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  placeholder?: string;
+  secureTextEntry?: boolean;
+};
+
+function Field({ label, value, onChangeText, placeholder, secureTextEntry }: FieldProps) {
+  return (
+    <ThemedView style={styles.fieldGroup}>
+      <ThemedText>{label}</ThemedText>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#888"
+        secureTextEntry={secureTextEntry}
+        autoCapitalize="none"
+        style={styles.input}
+      />
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: {
+    gap: 12,
+    padding: 16,
+    paddingBottom: 32,
+  },
+  helpText: {
+    opacity: 0.8,
+    marginBottom: 4,
+  },
+  fieldGroup: {
+    gap: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#666',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#111',
+    backgroundColor: '#fff',
+  },
+  button: {
+    marginTop: 8,
+    backgroundColor: '#0a7ea4',
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  centerRow: {
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  roleList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  roleChip: {
+    borderWidth: 1,
+    borderColor: '#777',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  roleChipActive: {
+    borderColor: '#0a7ea4',
+    backgroundColor: '#0a7ea4',
+  },
+  roleChipTextActive: {
+    color: '#fff',
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#999',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  secondaryButtonText: {
+    fontWeight: '600',
+  },
+  resultBox: {
+    marginTop: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#555',
+    borderRadius: 8,
   },
 });

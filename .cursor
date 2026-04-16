@@ -1,0 +1,47 @@
+---
+description: Auth, roles, RLS, and managed-user flow standards for Youth League app
+alwaysApply: true
+---
+
+# Youth League Auth & Authorization Rule
+
+## Core auth model
+- No public signup flow in app UI.
+- Login is username + password.
+- Username maps to synthetic email: `<username>@youthleague.local`.
+- Never rely on role selected in UI for authorization decisions.
+
+## User creation flow (mandatory)
+- New users are created only through Edge Function `create-managed-user`.
+- Client must not directly insert into `profiles` or `user_roles`.
+- Edge function must:
+  1) verify creator permission via `can_create_role`
+  2) create auth user
+  3) provision profile + role
+  4) rollback auth user if provisioning fails
+
+## Hierarchy and role enforcement
+- Enforce permissions via `role_creation_rules` + DB functions (`has_role`, `can_create_role`, `can_manage_user`).
+- Keep role names exact and lowercase enum values:
+  `admin`, `savez`, `delegat`, `klub_direktor`, `trener`, `igrac`, `scout`, `zapisnicar`, `spectator`.
+- Any role typo should be treated as invalid input.
+
+## RLS and security
+- RLS must stay enabled on role/profile/license tables.
+- Avoid recursive policy/function patterns that re-query protected tables incorrectly.
+- Prefer `SECURITY DEFINER` helper functions for role checks where needed.
+- Never expose service role key to client code.
+
+## Storage conventions
+- License files go to private bucket `licenses`.
+- File path format must be: `<user_id>/current.pdf`.
+- Persist the same path in `user_licenses.license_file_path`.
+
+## Frontend guardrails
+- Protect app routes/screens by auth session check.
+- If unauthenticated, redirect to login.
+- Show actionable API errors in debug/test screens (include raw error body when available).
+
+## Git / secrets
+- Never commit `.env` or secrets.
+- Keep Supabase keys in environment variables only.
