@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usernameToEmail } from '@/lib/auth';
+import { getRoleHomeRoute } from '@/lib/role-home-route';
 import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
@@ -37,14 +38,26 @@ export default function LoginScreen() {
       error = fallback.error;
     }
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setErrorMessage(`${error.message}. Probaj i sa punim email-om ako je korisnik ručno kreiran.`);
       return;
     }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    router.replace('/(tabs)');
+    if (!user) {
+      setLoading(false);
+      setErrorMessage('Login je prosao, ali sesija nije dostupna. Pokusaj ponovo.');
+      return;
+    }
+
+    const { data: roleRow } = await supabase.from('user_roles').select('role').eq('user_id', user.id).maybeSingle();
+    const route = getRoleHomeRoute(roleRow?.role ?? '');
+
+    setLoading(false);
+    router.replace(route ?? '/(tabs)');
   };
 
   return (

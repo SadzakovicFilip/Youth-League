@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { getRoleHomeRoute } from '@/lib/role-home-route';
 import { supabase } from '@/lib/supabase';
 
 export default function HomeScreen() {
@@ -78,6 +79,15 @@ export default function HomeScreen() {
     router.replace('/login');
   };
 
+  const onOpenRoleDashboard = () => {
+    const route = myRole ? getRoleHomeRoute(myRole) : null;
+    if (!route) {
+      setResult('Trenutna rola nema mapiran dashboard route.');
+      return;
+    }
+    router.push(route);
+  };
+
   const onCreateManagedUser = async () => {
     if (!role || !username || !password) {
       setResult('Role, username i password su obavezni.');
@@ -130,6 +140,12 @@ export default function HomeScreen() {
         Ovaj ekran je privremeni test za Edge funkciju `create-managed-user`.
       </ThemedText>
       {myRole ? <ThemedText>Ulogovana rola: {myRole}</ThemedText> : null}
+      <Pressable style={styles.secondaryButton} onPress={() => router.push('/home')}>
+        <ThemedText style={styles.secondaryButtonText}>Open shared home</ThemedText>
+      </Pressable>
+      <Pressable style={styles.secondaryButton} onPress={onOpenRoleDashboard}>
+        <ThemedText style={styles.secondaryButtonText}>Open my role dashboard</ThemedText>
+      </Pressable>
 
       {loadingRoles ? (
         <View style={styles.centerRow}>
