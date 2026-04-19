@@ -6,8 +6,8 @@ export function getRoleHomeRoute(role: string): string | null {
       return '/savez';
     case 'delegat':
       return '/delegat';
-    case 'klub_direktor':
-      return '/klub-direktor';
+    case 'klub':
+      return '/klub';
     case 'trener':
       return '/trener';
     case 'igrac':
@@ -16,6 +16,8 @@ export function getRoleHomeRoute(role: string): string | null {
       return '/scout';
     case 'zapisnicar':
       return '/zapisnicar';
+    case 'sudija':
+      return '/sudija';
     case 'spectator':
       return '/spectator';
     default:

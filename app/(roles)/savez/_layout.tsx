@@ -5,7 +5,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export default function TrenerLayout() {
+export default function SavezLayout() {
   const colorScheme = useColorScheme();
 
   return (
@@ -15,17 +15,24 @@ export default function TrenerLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
       }}>
       <Tabs.Screen
-        name="index"
+        name="(takmicenje)"
         options={{
-          title: 'Treninzi',
+          title: 'Takmicenje',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="matches"
+        name="utakmice"
         options={{
           title: 'Utakmice',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="paperplane.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="korisnici"
+        options={{
+          title: 'Korisnici',
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="person.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -35,14 +42,8 @@ export default function TrenerLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="person.fill" color={color} />,
         }}
       />
-      <Tabs.Screen name="tim" options={{ href: null }} />
-      <Tabs.Screen name="treninzi" options={{ href: null }} />
-      <Tabs.Screen name="taktike" options={{ href: null }} />
-      <Tabs.Screen name="clanarine" options={{ href: null }} />
-      <Tabs.Screen name="dodaj-igraca" options={{ href: null }} />
-      <Tabs.Screen name="moja-liga" options={{ href: null }} />
-      <Tabs.Screen name="klub/[id]" options={{ href: null }} />
-      <Tabs.Screen name="korisnik/[id]" options={{ href: null }} />
+      <Tabs.Screen name="dodaj-korisnika" options={{ href: null }} />
+      <Tabs.Screen name="dodaj-utakmicu" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { UserDetailView } from '@/components/shared/user-detail-view';
 import { supabase } from '@/lib/supabase';
 
 type AttendanceRow = {
@@ -40,15 +41,55 @@ type TacticRow = {
   created_at: string;
 };
 
-type PlayerTabKey = 'attendance' | 'fees' | 'stats' | 'tactics';
+type ClubContext = {
+  club_id: number;
+  club_name: string;
+  league_id: number | null;
+  league_name: string | null;
+  region_id: number | null;
+  region_name: string | null;
+  group_id: number | null;
+  group_name: string | null;
+};
+
+type GroupClub = {
+  id: number;
+  name: string;
+};
+
+type MatchRow = {
+  id: number;
+  home_club_id: number;
+  away_club_id: number;
+  scheduled_at: string;
+  venue: string | null;
+  status: string;
+  home_score: number | null;
+  away_score: number | null;
+  home_club_name?: string | null;
+  away_club_name?: string | null;
+};
+
+type MatchesPayload = {
+  context: ClubContext | null;
+  home: MatchRow[];
+  away: MatchRow[];
+};
+
+type PlayerTabKey = 'attendance' | 'fees' | 'stats' | 'tactics' | 'profile' | 'league' | 'schedule';
 
 export default function IgracHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [fees, setFees] = useState<FeeRow[]>([]);
   const [stats, setStats] = useState<StatRow[]>([]);
   const [tactics, setTactics] = useState<TacticRow[]>([]);
+  const [clubContext, setClubContext] = useState<ClubContext | null>(null);
+  const [groupClubs, setGroupClubs] = useState<GroupClub[]>([]);
+  const [homeMatches, setHomeMatches] = useState<MatchRow[]>([]);
+  const [awayMatches, setAwayMatches] = useState<MatchRow[]>([]);
   const [activeTab, setActiveTab] = useState<PlayerTabKey>('attendance');
 
   const onLogout = async () => {
@@ -71,7 +112,9 @@ export default function IgracHomeScreen() {
       return;
     }
 
-    const [attendanceRes, feesRes, statsRes, membershipsRes] = await Promise.all([
+    setUserId(user.id);
+
+    const [attendanceRes, feesRes, statsRes, membershipsRes, clubCtxRes] = await Promise.all([
       supabase
         .from('player_attendance')
         .select('id, training_date, status, note')
@@ -91,23 +134,33 @@ export default function IgracHomeScreen() {
         .order('match_date', { ascending: false })
         .limit(20),
       supabase.from('club_memberships').select('club_id').eq('user_id', user.id).eq('active', true),
+      supabase.rpc('get_my_club_context'),
     ]);
 
-    if (attendanceRes.error || feesRes.error || statsRes.error || membershipsRes.error) {
+    if (
+      attendanceRes.error ||
+      feesRes.error ||
+      statsRes.error ||
+      membershipsRes.error ||
+      clubCtxRes.error
+    ) {
       setErrorMessage(
         attendanceRes.error?.message ||
           feesRes.error?.message ||
           statsRes.error?.message ||
           membershipsRes.error?.message ||
+          clubCtxRes.error?.message ||
           'Greska pri ucitavanju podataka igraca.'
       );
       setLoading(false);
       return;
     }
 
-    const clubIds = (membershipsRes.data ?? []).map((membership) => membership.club_id);
-    let tacticsRows: TacticRow[] = [];
+    const clubIds = (membershipsRes.data ?? []).map((m) => m.club_id);
+    const ctx = (clubCtxRes.data ?? null) as ClubContext | null;
+    setClubContext(ctx);
 
+    let tacticsRows: TacticRow[] = [];
     if (clubIds.length > 0) {
       const tacticsRes = await supabase
         .from('club_tactics')
@@ -116,20 +169,65 @@ export default function IgracHomeScreen() {
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(30);
-
       if (tacticsRes.error) {
         setErrorMessage(tacticsRes.error.message);
         setLoading(false);
         return;
       }
-
       tacticsRows = tacticsRes.data ?? [];
+    }
+
+    let groupClubRows: GroupClub[] = [];
+    if (ctx?.group_id) {
+      const groupRes = await supabase
+        .from('group_clubs')
+        .select('club_id, clubs:clubs!inner(id, name)')
+        .eq('group_id', ctx.group_id);
+      if (!groupRes.error) {
+        groupClubRows = (groupRes.data ?? [])
+          .map((row) => {
+            const c = (row as { clubs: { id: number; name: string } | { id: number; name: string }[] }).clubs;
+            const club = Array.isArray(c) ? c[0] : c;
+            return club ? { id: club.id, name: club.name } : null;
+          })
+          .filter((x): x is GroupClub => !!x)
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+    }
+
+    let homeRows: MatchRow[] = [];
+    let awayRows: MatchRow[] = [];
+    if (ctx?.club_id) {
+      const matchesRpc = await supabase.rpc('get_klub_matches', { p_club_id: ctx.club_id });
+      if (!matchesRpc.error && matchesRpc.data) {
+        const payload = matchesRpc.data as MatchesPayload;
+        homeRows = payload.home ?? [];
+        awayRows = payload.away ?? [];
+      } else {
+        const [hRes, aRes] = await Promise.all([
+          supabase
+            .from('matches')
+            .select('id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
+            .eq('home_club_id', ctx.club_id)
+            .order('scheduled_at', { ascending: true }),
+          supabase
+            .from('matches')
+            .select('id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
+            .eq('away_club_id', ctx.club_id)
+            .order('scheduled_at', { ascending: true }),
+        ]);
+        if (!hRes.error) homeRows = (hRes.data ?? []) as MatchRow[];
+        if (!aRes.error) awayRows = (aRes.data ?? []) as MatchRow[];
+      }
     }
 
     setAttendance(attendanceRes.data ?? []);
     setFees(feesRes.data ?? []);
     setStats(statsRes.data ?? []);
     setTactics(tacticsRows);
+    setGroupClubs(groupClubRows);
+    setHomeMatches(homeRows);
+    setAwayMatches(awayRows);
     setLoading(false);
   }, []);
 
@@ -141,7 +239,7 @@ export default function IgracHomeScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <ThemedText type="title">Igrac Dashboard</ThemedText>
       <ThemedText style={styles.subtitle}>
-        Read-only pregled: prisustvo, clanarina, statistika i taktike tvog kluba.
+        Read-only pregled: prisustvo, clanarina, statistika, taktike, profil, liga i utakmice.
       </ThemedText>
 
       <Link href="/home" style={styles.link}>
@@ -156,14 +254,13 @@ export default function IgracHomeScreen() {
       </Pressable>
 
       <ThemedView style={styles.tabRow}>
-        <TabButton
-          label="Prisustvo"
-          active={activeTab === 'attendance'}
-          onPress={() => setActiveTab('attendance')}
-        />
+        <TabButton label="Prisustvo" active={activeTab === 'attendance'} onPress={() => setActiveTab('attendance')} />
         <TabButton label="Clanarina" active={activeTab === 'fees'} onPress={() => setActiveTab('fees')} />
         <TabButton label="Statistika" active={activeTab === 'stats'} onPress={() => setActiveTab('stats')} />
         <TabButton label="Taktike" active={activeTab === 'tactics'} onPress={() => setActiveTab('tactics')} />
+        <TabButton label="Profil" active={activeTab === 'profile'} onPress={() => setActiveTab('profile')} />
+        <TabButton label="Liga" active={activeTab === 'league'} onPress={() => setActiveTab('league')} />
+        <TabButton label="Utakmice" active={activeTab === 'schedule'} onPress={() => setActiveTab('schedule')} />
       </ThemedView>
 
       {loading ? (
@@ -235,8 +332,103 @@ export default function IgracHomeScreen() {
           )}
         </Section>
       ) : null}
+
+      {activeTab === 'profile' ? (
+        userId ? (
+          <UserDetailView userId={userId} showBackButton={false} />
+        ) : (
+          <Section title="Moj profil">
+            <ThemedText>Nema aktivne sesije.</ThemedText>
+          </Section>
+        )
+      ) : null}
+
+      {activeTab === 'league' ? (
+        <Section title="Moja liga">
+          {!clubContext ? (
+            <ThemedText>Nisi rasporedjen ni u jedan klub.</ThemedText>
+          ) : (
+            <>
+              <ThemedText>Klub: {clubContext.club_name}</ThemedText>
+              <ThemedText>Regija: {clubContext.region_name ?? '-'}</ThemedText>
+              <ThemedText>Liga: {clubContext.league_name ?? '-'}</ThemedText>
+              <ThemedText>Grupa: {clubContext.group_name ?? '-'}</ThemedText>
+
+              <ThemedText type="defaultSemiBold" style={styles.subsectionTitle}>
+                Klubovi u tvojoj grupi ({groupClubs.length})
+              </ThemedText>
+              {groupClubs.length === 0 ? (
+                <ThemedText>Grupa jos nije popunjena.</ThemedText>
+              ) : (
+                groupClubs.map((c) => (
+                  <ThemedText key={c.id}>
+                    {c.id === clubContext.club_id ? '▸ ' : '• '}
+                    {c.name}
+                    {c.id === clubContext.club_id ? ' (tvoj klub)' : ''}
+                  </ThemedText>
+                ))
+              )}
+            </>
+          )}
+        </Section>
+      ) : null}
+
+      {activeTab === 'schedule' ? (
+        <>
+          <Section title="Domace utakmice">
+            {homeMatches.length === 0 ? (
+              <ThemedText>Nema zakazanih domacih utakmica.</ThemedText>
+            ) : (
+              homeMatches.map((m) => (
+                <ThemedView key={m.id} style={styles.matchRow}>
+                  <ThemedText type="defaultSemiBold">
+                    vs {m.away_club_name ?? `#${m.away_club_id}`}
+                  </ThemedText>
+                  <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                  {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                  <ThemedText>Status: {m.status}</ThemedText>
+                  {m.home_score !== null && m.away_score !== null ? (
+                    <ThemedText>Rezultat: {m.home_score} - {m.away_score}</ThemedText>
+                  ) : null}
+                </ThemedView>
+              ))
+            )}
+          </Section>
+
+          <Section title="Gostujuce utakmice">
+            {awayMatches.length === 0 ? (
+              <ThemedText>Nema zakazanih gostujucih utakmica.</ThemedText>
+            ) : (
+              awayMatches.map((m) => (
+                <ThemedView key={m.id} style={styles.matchRow}>
+                  <ThemedText type="defaultSemiBold">
+                    @ {m.home_club_name ?? `#${m.home_club_id}`}
+                  </ThemedText>
+                  <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                  {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                  <ThemedText>Status: {m.status}</ThemedText>
+                  {m.home_score !== null && m.away_score !== null ? (
+                    <ThemedText>Rezultat: {m.home_score} - {m.away_score}</ThemedText>
+                  ) : null}
+                </ThemedView>
+              ))
+            )}
+          </Section>
+        </>
+      ) : null}
     </ScrollView>
   );
+}
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
 type SectionProps = {
@@ -275,6 +467,9 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     opacity: 0.85,
+  },
+  subsectionTitle: {
+    marginTop: 8,
   },
   link: {
     textDecorationLine: 'underline',
@@ -330,6 +525,13 @@ const styles = StyleSheet.create({
   },
   sectionBody: {
     gap: 6,
+  },
+  matchRow: {
+    borderWidth: 1,
+    borderColor: '#888',
+    borderRadius: 6,
+    padding: 8,
+    gap: 4,
   },
   errorText: {
     color: '#c53939',

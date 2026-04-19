@@ -1,37 +1,24 @@
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { sanitizeUsername } from '@/lib/auth';
+import { getMyClubContext } from '@/lib/club-context';
 import { supabase } from '@/lib/supabase';
 
-type AppRole =
-  | 'admin'
-  | 'savez'
-  | 'delegat'
-  | 'klub'
-  | 'trener'
-  | 'igrac'
-  | 'scout'
-  | 'zapisnicar'
-  | 'spectator';
+type CreateRole = 'igrac' | 'trener' | 'zapisnicar';
 
-const CANDIDATE_ROLES: AppRole[] = [
-  'savez',
-  'delegat',
-  'klub',
-  'trener',
-  'igrac',
-  'scout',
-  'zapisnicar',
-  'spectator',
-];
+type MemberCreateFormProps = {
+  targetRole: CreateRole;
+  title: string;
+  description: string;
+};
 
-export default function AdminHomeScreen() {
-  const [allowedRoles, setAllowedRoles] = useState<AppRole[]>([]);
-  const [role, setRole] = useState<AppRole | null>('savez');
+export function MemberCreateForm({ targetRole, title, description }: MemberCreateFormProps) {
+  const [clubId, setClubId] = useState<number | null>(null);
+  const [clubLabel, setClubLabel] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -44,26 +31,21 @@ export default function AdminHomeScreen() {
   const [result, setResult] = useState('');
 
   useEffect(() => {
-    const loadAllowed = async () => {
-      const checks = await Promise.all(
-        CANDIDATE_ROLES.map(async (r) => {
-          const { data, error } = await supabase.rpc('can_create_role', { p_target: r });
-          return { role: r, allowed: !error && !!data };
-        })
-      );
-      setAllowedRoles(checks.filter((c) => c.allowed).map((c) => c.role));
+    const loadClub = async () => {
+      const { data, error } = await getMyClubContext();
+      if (error || !data) {
+        setResult(error ?? 'Nije pronadjen klub kontekst.');
+        return;
+      }
+      setClubId(data.clubId);
+      setClubLabel(data.clubName);
     };
-    loadAllowed();
+    loadClub();
   }, []);
 
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
-
-  const onSubmit = async () => {
-    if (!role || !username.trim() || !password.trim()) {
-      setResult('Rola, username i password su obavezni.');
+  const onCreate = async () => {
+    if (!clubId || !username.trim() || !password.trim()) {
+      setResult('Klub, username i password su obavezni.');
       return;
     }
     const safeUsername = sanitizeUsername(username);
@@ -71,12 +53,13 @@ export default function AdminHomeScreen() {
       setResult('Username mora sadrzati slova/brojeve.');
       return;
     }
+
     setLoading(true);
     setResult('');
 
     const { data, error } = await supabase.functions.invoke('create-managed-user', {
       body: {
-        role,
+        role: targetRole,
         username: safeUsername,
         password,
         display_name: displayName || undefined,
@@ -85,6 +68,8 @@ export default function AdminHomeScreen() {
         birth_date: birthDate || undefined,
         address: address || undefined,
         phone: phone || undefined,
+        club_id: clubId,
+        member_role: targetRole,
       },
     });
 
@@ -101,8 +86,7 @@ export default function AdminHomeScreen() {
       return;
     }
 
-    const newUserId = data?.user_id as string | undefined;
-    setResult(`OK: Korisnik (${role}) kreiran. ID: ${newUserId ?? '?'}`);
+    setResult(`OK: ${targetRole} kreiran. ID: ${data?.user_id ?? '-'}`);
     setUsername('');
     setPassword('');
     setDisplayName('');
@@ -116,33 +100,14 @@ export default function AdminHomeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <ThemedView style={styles.headerRow}>
-        <ThemedText type="title">Admin Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
-      </ThemedView>
-      <ThemedText>Globalno upravljanje korisnicima, pravilima i sistemskim postavkama.</ThemedText>
-      <Link href="/home" style={styles.link}>
-        Otvori shared home
-      </Link>
+      <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <ThemedText style={styles.backText}>← Nazad</ThemedText>
+      </Pressable>
+      <ThemedText type="title">{title}</ThemedText>
+      <ThemedText>{description}</ThemedText>
+      <ThemedText>Klub: {clubLabel || '-'}</ThemedText>
 
-      <ThemedText type="subtitle">Kreiraj korisnika</ThemedText>
-
-      <ThemedText>Rola:</ThemedText>
-      <ThemedView style={styles.chipRow}>
-        {allowedRoles.map((r) => (
-          <Pressable
-            key={r}
-            onPress={() => setRole(r)}
-            style={[styles.chip, role === r && styles.chipActive]}>
-            <ThemedText style={role === r ? styles.chipActiveText : undefined}>{r}</ThemedText>
-          </Pressable>
-        ))}
-        {allowedRoles.length === 0 ? <ThemedText>Nema dostupnih rola.</ThemedText> : null}
-      </ThemedView>
-
-      <Field label="Username *" value={username} onChangeText={setUsername} placeholder="npr. savez1" />
+      <Field label="Username *" value={username} onChangeText={setUsername} placeholder="npr. korisnik1" />
       <Field label="Password *" value={password} onChangeText={setPassword} secureTextEntry />
       <Field label="Display name" value={displayName} onChangeText={setDisplayName} />
       <Field label="First name" value={firstName} onChangeText={setFirstName} />
@@ -151,15 +116,8 @@ export default function AdminHomeScreen() {
       <Field label="Address" value={address} onChangeText={setAddress} />
       <Field label="Phone" value={phone} onChangeText={setPhone} />
 
-      <Pressable
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={onSubmit}
-        disabled={loading}>
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <ThemedText style={styles.buttonText}>Kreiraj korisnika</ThemedText>
-        )}
+      <Pressable style={[styles.button, loading && styles.buttonDisabled]} onPress={onCreate} disabled={loading}>
+        {loading ? <ActivityIndicator color="#fff" /> : <ThemedText style={styles.buttonText}>Kreiraj</ThemedText>}
       </Pressable>
 
       {result ? (
@@ -198,20 +156,15 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry }: Fie
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  logoutButton: {
+  backButton: {
+    alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#c53939',
+    borderColor: '#999',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  logoutText: { color: '#c53939', fontWeight: '600' },
-  link: { textDecorationLine: 'underline', fontSize: 16 },
+  backText: { fontWeight: '600' },
   fieldGroup: { gap: 6 },
   input: {
     borderWidth: 1,
@@ -222,16 +175,6 @@ const styles = StyleSheet.create({
     color: '#111',
     backgroundColor: '#fff',
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  chipActive: { backgroundColor: '#0a7ea4', borderColor: '#0a7ea4' },
-  chipActiveText: { color: '#fff', fontWeight: '600' },
   button: {
     marginTop: 8,
     minHeight: 44,

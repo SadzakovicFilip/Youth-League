@@ -37,6 +37,12 @@ const TRAINING_SECTIONS: Array<{ id: string; title: string; description: string;
     description: 'Evidencija clanarina i status uplata igraca.',
     href: '/trener/clanarine',
   },
+  {
+    id: 'moja-liga',
+    title: 'MOJA LIGA',
+    description: 'Pregled svih klubova u tvojoj ligi, njihovih timova i licenci.',
+    href: '/trener/moja-liga',
+  },
 ] as const;
 
 export default function TrenerHomeScreen() {

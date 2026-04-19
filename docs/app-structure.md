@@ -13,7 +13,7 @@
   - `admin/index.tsx`
   - `savez/index.tsx`
   - `delegat/index.tsx`
-  - `klub-direktor/index.tsx`
+  - `klub/index.tsx`
   - `trener/index.tsx`
   - `igrac/index.tsx`
   - `scout/index.tsx`

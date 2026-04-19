@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { sanitizeUsername } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
 export default function DodajIgracaScreen() {
@@ -61,6 +62,11 @@ export default function DodajIgracaScreen() {
       setResult('Club ID mora biti pozitivan broj.');
       return;
     }
+    const safeUsername = sanitizeUsername(username);
+    if (!safeUsername) {
+      setResult('Username mora sadrzati slova/brojeve.');
+      return;
+    }
 
     setLoading(true);
     setResult('');
@@ -68,7 +74,7 @@ export default function DodajIgracaScreen() {
     const { data, error } = await supabase.functions.invoke('create-managed-user', {
       body: {
         role: 'igrac',
-        username: username.trim(),
+        username: safeUsername,
         password,
         display_name: displayName || undefined,
         first_name: firstName || undefined,

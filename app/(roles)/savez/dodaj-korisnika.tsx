@@ -1,4 +1,4 @@
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
@@ -18,20 +18,11 @@ type AppRole =
   | 'zapisnicar'
   | 'spectator';
 
-const CANDIDATE_ROLES: AppRole[] = [
-  'savez',
-  'delegat',
-  'klub',
-  'trener',
-  'igrac',
-  'scout',
-  'zapisnicar',
-  'spectator',
-];
+const CANDIDATE_ROLES: AppRole[] = ['delegat', 'klub', 'zapisnicar', 'scout', 'trener'];
 
-export default function AdminHomeScreen() {
+export default function DodajKorisnikaScreen() {
   const [allowedRoles, setAllowedRoles] = useState<AppRole[]>([]);
-  const [role, setRole] = useState<AppRole | null>('savez');
+  const [role, setRole] = useState<AppRole | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -51,15 +42,14 @@ export default function AdminHomeScreen() {
           return { role: r, allowed: !error && !!data };
         })
       );
-      setAllowedRoles(checks.filter((c) => c.allowed).map((c) => c.role));
+      const allowed = checks.filter((c) => c.allowed).map((c) => c.role);
+      setAllowedRoles(allowed);
+      if (allowed.length > 0 && !role) {
+        setRole(allowed[0]);
+      }
     };
     loadAllowed();
-  }, []);
-
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
+  }, [role]);
 
   const onSubmit = async () => {
     if (!role || !username.trim() || !password.trim()) {
@@ -102,7 +92,7 @@ export default function AdminHomeScreen() {
     }
 
     const newUserId = data?.user_id as string | undefined;
-    setResult(`OK: Korisnik (${role}) kreiran. ID: ${newUserId ?? '?'}`);
+    setResult(`OK: Korisnik kreiran (${newUserId ?? '?'}).`);
     setUsername('');
     setPassword('');
     setDisplayName('');
@@ -116,18 +106,10 @@ export default function AdminHomeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <ThemedView style={styles.headerRow}>
-        <ThemedText type="title">Admin Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
-      </ThemedView>
-      <ThemedText>Globalno upravljanje korisnicima, pravilima i sistemskim postavkama.</ThemedText>
-      <Link href="/home" style={styles.link}>
-        Otvori shared home
-      </Link>
-
-      <ThemedText type="subtitle">Kreiraj korisnika</ThemedText>
+      <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <ThemedText style={styles.backText}>← Nazad</ThemedText>
+      </Pressable>
+      <ThemedText type="title">Dodaj korisnika</ThemedText>
 
       <ThemedText>Rola:</ThemedText>
       <ThemedView style={styles.chipRow}>
@@ -139,10 +121,12 @@ export default function AdminHomeScreen() {
             <ThemedText style={role === r ? styles.chipActiveText : undefined}>{r}</ThemedText>
           </Pressable>
         ))}
-        {allowedRoles.length === 0 ? <ThemedText>Nema dostupnih rola.</ThemedText> : null}
+        {allowedRoles.length === 0 ? (
+          <ThemedText>Nemas prava za kreiranje korisnika.</ThemedText>
+        ) : null}
       </ThemedView>
 
-      <Field label="Username *" value={username} onChangeText={setUsername} placeholder="npr. savez1" />
+      <Field label="Username *" value={username} onChangeText={setUsername} placeholder="npr. delegat1" />
       <Field label="Password *" value={password} onChangeText={setPassword} secureTextEntry />
       <Field label="Display name" value={displayName} onChangeText={setDisplayName} />
       <Field label="First name" value={firstName} onChangeText={setFirstName} />
@@ -198,20 +182,15 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry }: Fie
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  logoutButton: {
+  backButton: {
+    alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#c53939',
+    borderColor: '#999',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  logoutText: { color: '#c53939', fontWeight: '600' },
-  link: { textDecorationLine: 'underline', fontSize: 16 },
+  backText: { fontWeight: '600' },
   fieldGroup: { gap: 6 },
   input: {
     borderWidth: 1,

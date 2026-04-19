@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -11,14 +11,17 @@ type ProfileRow = {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  birth_date: string | null;
+  address: string | null;
+  phone: string | null;
 };
 
-export default function ZapisnicarHomeScreen() {
+export default function KlubProfileScreen() {
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    const load = async () => {
+    const loadProfile = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -28,7 +31,7 @@ export default function ZapisnicarHomeScreen() {
       }
       const { data, error } = await supabase
         .from('profiles')
-        .select('username, display_name, first_name, last_name')
+        .select('username, display_name, first_name, last_name, birth_date, address, phone')
         .eq('id', user.id)
         .maybeSingle();
       if (error) {
@@ -37,7 +40,7 @@ export default function ZapisnicarHomeScreen() {
       }
       setProfile(data);
     };
-    load();
+    loadProfile();
   }, []);
 
   const onLogout = async () => {
@@ -51,12 +54,7 @@ export default function ZapisnicarHomeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <ThemedView style={styles.headerRow}>
-        <ThemedText type="title">Zapisnicar Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
-      </ThemedView>
+      <ThemedText type="title">Klub profil</ThemedText>
 
       {errorMessage ? (
         <ThemedView style={styles.card}>
@@ -66,36 +64,34 @@ export default function ZapisnicarHomeScreen() {
 
       {profile ? (
         <ThemedView style={styles.card}>
-          <ThemedText type="defaultSemiBold">
-            {profile.display_name ||
-              [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
-              'Zapisnicar'}
-          </ThemedText>
+          <ThemedText type="defaultSemiBold">{profile.display_name ?? 'Bez imena'}</ThemedText>
           <ThemedText>Username: {profile.username ?? '-'}</ThemedText>
+          <ThemedText>Ime: {profile.first_name ?? '-'}</ThemedText>
+          <ThemedText>Prezime: {profile.last_name ?? '-'}</ThemedText>
+          <ThemedText>Datum rodjenja: {profile.birth_date ?? '-'}</ThemedText>
+          <ThemedText>Adresa: {profile.address ?? '-'}</ThemedText>
+          <ThemedText>Telefon: {profile.phone ?? '-'}</ThemedText>
         </ThemedView>
       ) : null}
 
-      <ThemedText>Unos i azuriranje zapisnika, statistike i utakmica.</ThemedText>
-      <ThemedText>Sledi razvoj modula za vodjenje zapisnika tokom utakmice.</ThemedText>
+      <Pressable style={styles.logoutButton} onPress={onLogout}>
+        <ThemedText style={styles.logoutText}>Logout</ThemedText>
+      </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 12, gap: 6 },
+  errorText: { color: '#c53939' },
   logoutButton: {
     borderWidth: 1,
     borderColor: '#c53939',
     borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 10,
+    alignItems: 'center',
   },
   logoutText: { color: '#c53939', fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
-  errorText: { color: '#c53939' },
 });
