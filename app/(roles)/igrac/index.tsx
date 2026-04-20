@@ -157,88 +157,31 @@ export default function IgracHomeScreen() {
 
     setUserId(user.id);
 
-    const [attendanceRes, feesRes, statsRes, membershipsRes, clubCtxRes, hubRes, tacticsRes] =
-      await Promise.all([
-        supabase.rpc('get_my_trainings'),
-        supabase
-          .from('player_fees')
-          .select('id, period_month, amount_due, amount_paid, status, due_date')
-          .eq('player_id', user.id)
-          .order('period_month', { ascending: false })
-          .limit(12),
-        supabase
-          .from('player_stats')
-          .select('id, match_date, opponent, points, rebounds, assists')
-          .eq('player_id', user.id)
-          .order('match_date', { ascending: false })
-          .limit(20),
-        supabase.from('club_memberships').select('club_id').eq('user_id', user.id).eq('active', true),
-        supabase.rpc('get_my_club_context'),
-        supabase.rpc('get_igrac_match_hub'),
-        supabase.rpc('get_my_tactics'),
-      ]);
-
-    if (
-      attendanceRes.error ||
-      feesRes.error ||
-      statsRes.error ||
-      membershipsRes.error ||
-      clubCtxRes.error ||
-      hubRes.error ||
-      tacticsRes.error
-    ) {
-      setErrorMessage(
-        attendanceRes.error?.message ||
-          feesRes.error?.message ||
-          statsRes.error?.message ||
-          membershipsRes.error?.message ||
-          clubCtxRes.error?.message ||
-          hubRes.error?.message ||
-          tacticsRes.error?.message ||
-          'Greska pri ucitavanju podataka igraca.'
-      );
+    // Jedan RPC poziv umesto 7 (F24 konsolidacija)
+    const { data: dash, error: dashErr } = await supabase.rpc('get_igrac_dashboard');
+    if (dashErr) {
+      setErrorMessage(dashErr.message);
       setLoading(false);
       return;
     }
 
-    const ctx = (clubCtxRes.data ?? null) as ClubContext | null;
-    setClubContext(ctx);
+    const payload = (dash ?? {}) as {
+      club_context: ClubContext | null;
+      trainings: AttendanceRow[];
+      fees: FeeRow[];
+      stats: StatRow[];
+      tactics: TacticRow[];
+      group_clubs: GroupClub[];
+      match_hub: MatchHubPayload | null;
+    };
 
-    const tacticsPayload = tacticsRes.data as { tactics?: TacticRow[] } | null;
-    const tacticsRows: TacticRow[] = tacticsPayload?.tactics ?? [];
-
-    const attendancePayload = attendanceRes.data as
-      | { trainings?: Omit<AttendanceRow, 'id'> & { id: number }[] }
-      | { trainings?: AttendanceRow[] }
-      | null;
-    const attendanceRows: AttendanceRow[] =
-      ((attendancePayload as { trainings?: AttendanceRow[] } | null)?.trainings ?? []) as AttendanceRow[];
-
-    let groupClubRows: GroupClub[] = [];
-    if (ctx?.group_id) {
-      const groupRes = await supabase
-        .from('group_clubs')
-        .select('club_id, clubs:clubs!inner(id, name)')
-        .eq('group_id', ctx.group_id);
-      if (!groupRes.error) {
-        groupClubRows = (groupRes.data ?? [])
-          .map((row) => {
-            const c = (row as { clubs: { id: number; name: string } | { id: number; name: string }[] }).clubs;
-            const club = Array.isArray(c) ? c[0] : c;
-            return club ? { id: club.id, name: club.name } : null;
-          })
-          .filter((x): x is GroupClub => !!x)
-          .sort((a, b) => a.name.localeCompare(b.name));
-      }
-    }
-
-    setMatchHub((hubRes.data as MatchHubPayload) ?? null);
-
-    setAttendance(attendanceRows);
-    setFees(feesRes.data ?? []);
-    setStats(statsRes.data ?? []);
-    setTactics(tacticsRows);
-    setGroupClubs(groupClubRows);
+    setClubContext(payload.club_context ?? null);
+    setAttendance(payload.trainings ?? []);
+    setFees(payload.fees ?? []);
+    setStats(payload.stats ?? []);
+    setTactics(payload.tactics ?? []);
+    setGroupClubs(payload.group_clubs ?? []);
+    setMatchHub(payload.match_hub ?? null);
     setLoading(false);
   }, []);
 

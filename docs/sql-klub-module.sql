@@ -4252,4 +4252,848 @@ end;
 $$;
 grant execute on function public.get_my_tactics() to authenticated;
 
+-- =============================================================================
+-- FAZA F24: PERFORMANSE — sveobuhvatna optimizacija (indeksi + RPC rewrite +
+-- konsolidacija poziva + ANALYZE). Ciljano za 5000+ korisnika, 3000+ utakmica,
+-- 15000+ treninga, ~200k+ match_events redova.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- 1) KRITICNI INDEKSI (schema-safe: svaki indeks proverava da li kolone/tabela
+--    postoje pre nego sto se kreira, pa ne moze da pukne ako se schema razlikuje)
+-- -----------------------------------------------------------------------------
+do $perf$
+declare
+  r record;
+  v_index_defs text[] := array[
+    -- profiles
+    'create index if not exists idx_profiles_username_lower on public.profiles (lower(username))',
+    'create index if not exists idx_profiles_created_by on public.profiles (created_by)',
+    -- user_roles
+    'create index if not exists idx_user_roles_user on public.user_roles (user_id)',
+    'create index if not exists idx_user_roles_role on public.user_roles (role)',
+    -- role_creation_rules (adaptive schema)
+    'create index if not exists idx_role_creation_rules_pair on public.role_creation_rules (parent_role, child_role)',
+    'create index if not exists idx_role_creation_rules_pair_alt on public.role_creation_rules (creator_role, target_role)',
+    'create index if not exists idx_role_creation_rules_pair_alt2 on public.role_creation_rules (from_role, to_role)',
+    -- clubs
+    'create index if not exists idx_clubs_league on public.clubs (league_id)',
+    'create index if not exists idx_clubs_region on public.clubs (region_id)',
+    -- leagues / groups
+    'create index if not exists idx_leagues_region on public.leagues (region_id)',
+    'create index if not exists idx_league_groups_league on public.league_groups (league_id)',
+    'create index if not exists idx_group_clubs_group on public.group_clubs (group_id)',
+    'create index if not exists idx_group_clubs_club on public.group_clubs (club_id)',
+    -- delegates
+    'create index if not exists idx_league_delegates_league_user on public.league_delegates (league_id, user_id)',
+    'create index if not exists idx_league_delegates_user on public.league_delegates (user_id)',
+    -- club_memberships
+    'create index if not exists idx_club_memberships_user_role_active on public.club_memberships (user_id, member_role, active)',
+    'create index if not exists idx_club_memberships_club_user on public.club_memberships (club_id, user_id)',
+    -- matches
+    'create index if not exists idx_matches_league on public.matches (league_id)',
+    'create index if not exists idx_matches_group_status_sched on public.matches (group_id, status, scheduled_at desc)',
+    'create index if not exists idx_matches_league_status_sched on public.matches (league_id, status, scheduled_at desc)',
+    'create index if not exists idx_matches_home_status_sched on public.matches (home_club_id, status, scheduled_at desc)',
+    'create index if not exists idx_matches_away_status_sched on public.matches (away_club_id, status, scheduled_at desc)',
+    'create index if not exists idx_matches_status_sched on public.matches (status, scheduled_at desc)',
+    -- match_events
+    'create index if not exists idx_match_events_user_match on public.match_events (user_id, match_id)',
+    'create index if not exists idx_match_events_match_user_type on public.match_events (match_id, user_id, event_type)',
+    'create index if not exists idx_match_events_user_type on public.match_events (user_id, event_type)',
+    'create index if not exists idx_match_events_match_id_desc on public.match_events (match_id, id desc)',
+    'create index if not exists idx_match_events_match_event on public.match_events (match_id, event_type)',
+    -- match_rosters
+    'create index if not exists idx_match_rosters_match_club_user on public.match_rosters (match_id, club_id, user_id)',
+    'create index if not exists idx_match_rosters_user_match on public.match_rosters (user_id, match_id)',
+    'create index if not exists idx_match_rosters_club_match on public.match_rosters (club_id, match_id)',
+    -- match_officials
+    'create index if not exists idx_match_officials_user on public.match_officials (user_id)',
+    'create index if not exists idx_match_officials_match on public.match_officials (match_id)',
+    -- player_fees
+    'create index if not exists idx_player_fees_player_period on public.player_fees (player_id, period_month)',
+    'create index if not exists idx_player_fees_club on public.player_fees (club_id)',
+    'create index if not exists idx_player_fees_status on public.player_fees (player_id, status)',
+    -- user_licenses
+    'create index if not exists idx_user_licenses_user_id on public.user_licenses (user_id)',
+    'create index if not exists idx_user_licenses_valid_until on public.user_licenses (user_id, valid_until)',
+    -- trainings + attendance (F23)
+    'create index if not exists idx_trainings_club_id_sched on public.trainings (club_id, scheduled_at desc)',
+    'create index if not exists idx_training_attendance_training on public.training_attendance (training_id)',
+    'create index if not exists idx_training_attendance_player_training on public.training_attendance (player_id, training_id)',
+    -- taktike (F23)
+    'create index if not exists idx_tactic_plans_club_active_kind on public.club_tactic_plans (club_id, is_active, kind)',
+    'create index if not exists idx_tactic_actions_tactic_pos on public.tactic_actions (tactic_id, position)',
+    -- league_sudije (ako postoji)
+    'create index if not exists idx_league_sudije_league on public.league_sudije (league_id)',
+    'create index if not exists idx_league_sudije_user on public.league_sudije (user_id)',
+    -- spectator_memberships (ako postoji)
+    'create index if not exists idx_spectator_memberships_user on public.spectator_memberships (user_id)',
+    'create index if not exists idx_spectator_memberships_club on public.spectator_memberships (club_id)'
+  ];
+  v_sql text;
+begin
+  foreach v_sql in array v_index_defs loop
+    begin
+      execute v_sql;
+    exception
+      when undefined_column then
+        raise notice 'Skipping (missing column): %', v_sql;
+      when undefined_table then
+        raise notice 'Skipping (missing table): %', v_sql;
+      when others then
+        raise notice 'Skipping (error: %): %', sqlerrm, v_sql;
+    end;
+  end loop;
+end
+$perf$;
+
+-- -----------------------------------------------------------------------------
+-- 2) REWRITE: get_igrac_match_hub
+--    Stari pristup: 5 korelisanih subupita po utakmici + 4 dodatna za
+--    sezonu/karijeru = O(N*5 + 8) po pozivu. Novi: 1 LATERAL agregat po utakmici
+--    + 2 single-pass agregata za sezonu i karijeru. Sa novim indeksima na
+--    match_events(user_id, match_id, event_type), sve je index-only scan.
+-- -----------------------------------------------------------------------------
+create or replace function public.get_igrac_match_hub()
+returns jsonb
+language plpgsql
+stable
+security definer
+parallel safe
+set search_path = public
+as $$
+declare
+  v_uid         uuid := auth.uid();
+  v_club_id     bigint;
+  v_league_id   bigint;
+  v_league_name text;
+  v_upcoming    jsonb;
+  v_played      jsonb;
+  v_season      jsonb;
+  v_career      jsonb;
+begin
+  -- najbrzi nacin da se nadje igracev klub (koristi idx_club_memberships_user_role_active)
+  select cm.club_id into v_club_id
+  from public.club_memberships cm
+  where cm.user_id = v_uid
+    and cm.active = true
+    and cm.member_role::text = 'igrac'
+  order by cm.club_id
+  limit 1;
+
+  if v_club_id is null then
+    return jsonb_build_object(
+      'club_id', null, 'league_id', null, 'league_name', null,
+      'upcoming', '[]'::jsonb, 'played', '[]'::jsonb,
+      'season', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      ),
+      'career', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      )
+    );
+  end if;
+
+  select c.league_id, l.name into v_league_id, v_league_name
+  from public.clubs c
+  left join public.leagues l on l.id = c.league_id
+  where c.id = v_club_id;
+
+  -- UPCOMING (do 80 utakmica)
+  select coalesce(jsonb_agg(to_jsonb(t) order by t.scheduled_at asc), '[]'::jsonb)
+  into v_upcoming
+  from (
+    select
+      m.id,
+      m.scheduled_at,
+      m.venue,
+      coalesce(m.status, 'scheduled') as status,
+      m.home_club_id,
+      m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score,
+      m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    where (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and coalesce(m.status, 'scheduled') in ('scheduled', 'live')
+    order by m.scheduled_at asc
+    limit 80
+  ) t;
+
+  -- PLAYED — jedan LATERAL agregat po utakmici umesto 5 korelisanih subupita.
+  select coalesce(jsonb_agg(to_jsonb(x) order by x.scheduled_at desc), '[]'::jsonb)
+  into v_played
+  from (
+    select
+      m.id as match_id,
+      m.scheduled_at,
+      m.home_club_id,
+      m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score,
+      m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side,
+      coalesce(st.pts_ft, 0)       as pts_ft,
+      coalesce(st.pts_2, 0)        as pts_2,
+      coalesce(st.pts_3, 0)        as pts_3,
+      coalesce(st.fouls, 0)        as fouls,
+      coalesce(st.total_points, 0) as total_points,
+      case
+        when m.home_club_id = v_club_id then
+          case
+            when coalesce(m.home_score, 0) > coalesce(m.away_score, 0) then 'W'
+            when coalesce(m.home_score, 0) < coalesce(m.away_score, 0) then 'L'
+            else 'N'
+          end
+        else
+          case
+            when coalesce(m.away_score, 0) > coalesce(m.home_score, 0) then 'W'
+            when coalesce(m.away_score, 0) < coalesce(m.home_score, 0) then 'L'
+            else 'N'
+          end
+      end as result
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    left join lateral (
+      select
+        sum(case when e.event_type = 'free_throw' then 1 else 0 end)::int as pts_ft,
+        sum(case when e.event_type = 'field'      then 1 else 0 end)::int as pts_2,
+        sum(case when e.event_type = 'three'      then 1 else 0 end)::int as pts_3,
+        sum(case when e.event_type = 'foul'       then 1 else 0 end)::int as fouls,
+        coalesce(sum(e.points), 0)::int                                   as total_points
+      from public.match_events e
+      where e.match_id = m.id and e.user_id = v_uid
+    ) st on true
+    where m.status = 'finished'
+      and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = m.id
+          and mr.club_id = v_club_id
+          and mr.user_id = v_uid
+      )
+    order by m.scheduled_at desc
+    limit 80
+  ) x;
+
+  -- SEZONA + KARIJERA u jednom prolazu: izracunamo na nivou (match_id)
+  -- i onda FILTER za sezonu (samo ako je liga kluba) vs karijera (sve).
+  with my_matches as (
+    select m.id, m.league_id
+    from public.matches m
+    where m.status = 'finished'
+      and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = m.id
+          and mr.club_id = v_club_id
+          and mr.user_id = v_uid
+      )
+  ),
+  per_match as (
+    select
+      mm.id        as match_id,
+      mm.league_id as league_id,
+      coalesce(sum(case when e.event_type = 'free_throw' then 1 else 0 end), 0)::int as pts_ft,
+      coalesce(sum(case when e.event_type = 'field'      then 1 else 0 end), 0)::int as pts_2,
+      coalesce(sum(case when e.event_type = 'three'      then 1 else 0 end), 0)::int as pts_3,
+      coalesce(sum(case when e.event_type = 'foul'       then 1 else 0 end), 0)::int as fouls,
+      coalesce(sum(e.points), 0)::int                                                as total_points
+    from my_matches mm
+    left join public.match_events e
+      on e.match_id = mm.id and e.user_id = v_uid
+    group by mm.id, mm.league_id
+  ),
+  agg as (
+    select
+      -- career
+      count(*)::int                                                            as c_games,
+      coalesce(sum(total_points), 0)::int                                      as c_pts,
+      coalesce(sum(pts_ft), 0)::int                                            as c_ft,
+      coalesce(sum(pts_2), 0)::int                                             as c_2,
+      coalesce(sum(pts_3), 0)::int                                             as c_3,
+      coalesce(sum(fouls), 0)::int                                             as c_f,
+      -- season (samo ako liga odgovara trenutnoj ligi kluba)
+      count(*) filter (where league_id is not distinct from v_league_id)::int  as s_games,
+      coalesce(sum(total_points) filter (where league_id is not distinct from v_league_id), 0)::int as s_pts,
+      coalesce(sum(pts_ft)       filter (where league_id is not distinct from v_league_id), 0)::int as s_ft,
+      coalesce(sum(pts_2)        filter (where league_id is not distinct from v_league_id), 0)::int as s_2,
+      coalesce(sum(pts_3)        filter (where league_id is not distinct from v_league_id), 0)::int as s_3,
+      coalesce(sum(fouls)        filter (where league_id is not distinct from v_league_id), 0)::int as s_f
+    from per_match
+  )
+  select
+    jsonb_build_object(
+      'games_played', a.s_games,
+      'total_points', a.s_pts,
+      'avg_points',   case when a.s_games > 0 then round(a.s_pts::numeric / a.s_games, 1) else 0 end,
+      'pts_ft',       a.s_ft,
+      'pts_2',        a.s_2,
+      'pts_3',        a.s_3,
+      'fouls',        a.s_f,
+      'pct_points_ft', case when a.s_pts > 0 then round(100.0 * a.s_ft::numeric / a.s_pts, 1) else 0 end,
+      'pct_points_2',  case when a.s_pts > 0 then round(100.0 * (a.s_2 * 2)::numeric / a.s_pts, 1) else 0 end,
+      'pct_points_3',  case when a.s_pts > 0 then round(100.0 * (a.s_3 * 3)::numeric / a.s_pts, 1) else 0 end
+    ),
+    jsonb_build_object(
+      'games_played', a.c_games,
+      'total_points', a.c_pts,
+      'avg_points',   case when a.c_games > 0 then round(a.c_pts::numeric / a.c_games, 1) else 0 end,
+      'pts_ft',       a.c_ft,
+      'pts_2',        a.c_2,
+      'pts_3',        a.c_3,
+      'fouls',        a.c_f,
+      'pct_points_ft', case when a.c_pts > 0 then round(100.0 * a.c_ft::numeric / a.c_pts, 1) else 0 end,
+      'pct_points_2',  case when a.c_pts > 0 then round(100.0 * (a.c_2 * 2)::numeric / a.c_pts, 1) else 0 end,
+      'pct_points_3',  case when a.c_pts > 0 then round(100.0 * (a.c_3 * 3)::numeric / a.c_pts, 1) else 0 end
+    )
+  into v_season, v_career
+  from agg a;
+
+  return jsonb_build_object(
+    'club_id',     v_club_id,
+    'league_id',   v_league_id,
+    'league_name', v_league_name,
+    'upcoming',    coalesce(v_upcoming, '[]'::jsonb),
+    'played',      coalesce(v_played,   '[]'::jsonb),
+    'season',      coalesce(v_season,   jsonb_build_object()),
+    'career',      coalesce(v_career,   jsonb_build_object())
+  );
+end;
+$$;
+grant execute on function public.get_igrac_match_hub() to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 3) REWRITE: get_league_top_scorers — jedan prolaz, bez player_club distinct-on
+--    koji moze biti spor na velikim dataset-ima. "player_club" racunamo preko
+--    LATERAL-a sa limitom 1 nakon agregacije (samo top N igraca).
+-- -----------------------------------------------------------------------------
+create or replace function public.get_league_top_scorers(
+  p_league_id bigint,
+  p_group_id  bigint default null,
+  p_limit     int    default 100
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+parallel safe
+set search_path = public
+as $$
+declare
+  v_league_name text;
+  v_rows        jsonb;
+  v_limit       int := greatest(coalesce(p_limit, 100), 1);
+begin
+  if p_league_id is null then
+    raise exception 'League id is required';
+  end if;
+  if not public.can_view_league(p_league_id) then
+    raise exception 'Not allowed to view this league';
+  end if;
+
+  select l.name into v_league_name from public.leagues l where l.id = p_league_id;
+
+  with m as (
+    select mm.id, mm.home_club_id, mm.away_club_id
+    from public.matches mm
+    where mm.league_id = p_league_id
+      and mm.status = 'finished'
+      and (p_group_id is null or mm.group_id = p_group_id)
+  ),
+  agg as (
+    -- agregiramo odmah po igracu, bez dodatnih join-ova
+    select
+      e.user_id,
+      count(distinct e.match_id)::int                                    as games,
+      coalesce(sum(e.points), 0)::int                                    as total_points,
+      sum(case when e.event_type = 'free_throw' then 1 else 0 end)::int  as pts_ft,
+      sum(case when e.event_type = 'field'      then 1 else 0 end)::int  as pts_2,
+      sum(case when e.event_type = 'three'      then 1 else 0 end)::int  as pts_3,
+      sum(case when e.event_type = 'foul'       then 1 else 0 end)::int  as fouls
+    from public.match_events e
+    join m on m.id = e.match_id
+    group by e.user_id
+  ),
+  topn as (
+    select a.*
+    from agg a
+    where a.total_points > 0
+    order by a.total_points desc
+    limit v_limit
+  )
+  select coalesce(jsonb_agg(
+      jsonb_build_object(
+        'user_id',      t.user_id,
+        'username',     p.username,
+        'display_name', p.display_name,
+        'first_name',   p.first_name,
+        'last_name',    p.last_name,
+        'club_id',      pc.club_id,
+        'club_name',    c.name,
+        'games',        t.games,
+        'total_points', t.total_points,
+        'avg_points',   case when t.games > 0 then round(t.total_points::numeric / t.games, 1) else 0 end,
+        'pts_ft',       t.pts_ft,
+        'pts_2',        t.pts_2,
+        'pts_3',        t.pts_3,
+        'fouls',        t.fouls
+      )
+      order by t.total_points desc, coalesce(p.display_name, p.username) asc
+    ), '[]'::jsonb)
+  into v_rows
+  from topn t
+  left join public.profiles p on p.id = t.user_id
+  left join lateral (
+    -- njegov najverovatniji klub u toj ligi: prvi roster unos (ako postoji)
+    -- ili aktivno igracko clanstvo u bilo kom klubu iz te lige.
+    select coalesce(
+      (
+        select mr.club_id
+        from public.match_rosters mr
+        join public.matches mm on mm.id = mr.match_id
+        where mr.user_id = t.user_id
+          and mm.league_id = p_league_id
+          and (p_group_id is null or mm.group_id = p_group_id)
+        order by mm.scheduled_at desc nulls last
+        limit 1
+      ),
+      (
+        select cm.club_id
+        from public.club_memberships cm
+        join public.clubs cc on cc.id = cm.club_id
+        where cm.user_id = t.user_id
+          and cm.active = true
+          and cm.member_role::text = 'igrac'
+          and cc.league_id = p_league_id
+        limit 1
+      )
+    ) as club_id
+  ) pc on true
+  left join public.clubs c on c.id = pc.club_id;
+
+  return jsonb_build_object(
+    'league_id',   p_league_id,
+    'league_name', v_league_name,
+    'group_id',    p_group_id,
+    'top_scorers', coalesce(v_rows, '[]'::jsonb)
+  );
+end;
+$$;
+grant execute on function public.get_league_top_scorers(bigint, bigint, int) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 4) KONSOLIDACIJA: get_igrac_dashboard — jedan RPC poziv umesto 7.
+--    Vraca sve sto player treba za home screen (prisustvo, clanarine, statistika,
+--    taktike, klubovi iz grupe, klub kontekst, matchhub).
+-- -----------------------------------------------------------------------------
+create or replace function public.get_igrac_dashboard()
+returns jsonb
+language plpgsql
+stable
+security definer
+parallel safe
+set search_path = public
+as $$
+declare
+  v_uid         uuid := auth.uid();
+  v_ctx         jsonb;
+  v_club_id     bigint;
+  v_group_id    bigint;
+  v_league_id   bigint;
+  v_trainings   jsonb;
+  v_fees        jsonb;
+  v_stats       jsonb;
+  v_tactics     jsonb;
+  v_group_clubs jsonb;
+  v_hub         jsonb;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- Klub kontekst (koristi vec optimizovani RPC)
+  v_ctx := public.get_my_club_context();
+  v_club_id   := nullif((v_ctx->>'club_id'),'')::bigint;
+  v_league_id := nullif((v_ctx->>'league_id'),'')::bigint;
+  v_group_id  := nullif((v_ctx->>'group_id'),'')::bigint;
+
+  -- Trainings
+  v_trainings := public.get_my_trainings();
+
+  -- Fees — direktni select, odmah ogranicen na 12 perioda
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', pf.id,
+    'period_month', pf.period_month,
+    'amount_due',   pf.amount_due,
+    'amount_paid',  pf.amount_paid,
+    'status',       pf.status,
+    'due_date',     pf.due_date
+  ) order by pf.period_month desc), '[]'::jsonb)
+  into v_fees
+  from (
+    select id, period_month, amount_due, amount_paid, status, due_date
+    from public.player_fees
+    where player_id = v_uid
+    order by period_month desc
+    limit 12
+  ) pf;
+
+  -- Player stats (legacy tabela) — 20 zapisa
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', s.id,
+    'match_date', s.match_date,
+    'opponent',   s.opponent,
+    'points',     s.points,
+    'rebounds',   s.rebounds,
+    'assists',    s.assists
+  ) order by s.match_date desc), '[]'::jsonb)
+  into v_stats
+  from (
+    select id, match_date, opponent, points, rebounds, assists
+    from public.player_stats
+    where player_id = v_uid
+    order by match_date desc
+    limit 20
+  ) s;
+
+  -- Tactics
+  v_tactics := public.get_my_tactics();
+
+  -- Klubovi u istoj grupi (ako postoji grupa)
+  if v_group_id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) order by c.name asc), '[]'::jsonb)
+    into v_group_clubs
+    from public.group_clubs gc
+    join public.clubs c on c.id = gc.club_id
+    where gc.group_id = v_group_id;
+  else
+    v_group_clubs := '[]'::jsonb;
+  end if;
+
+  -- Match hub
+  v_hub := public.get_igrac_match_hub();
+
+  return jsonb_build_object(
+    'user_id',     v_uid,
+    'club_context', coalesce(v_ctx, 'null'::jsonb),
+    'trainings',   coalesce(v_trainings->'trainings', '[]'::jsonb),
+    'fees',        coalesce(v_fees, '[]'::jsonb),
+    'stats',       coalesce(v_stats, '[]'::jsonb),
+    'tactics',     coalesce(v_tactics->'tactics', '[]'::jsonb),
+    'group_clubs', coalesce(v_group_clubs, '[]'::jsonb),
+    'match_hub',   coalesce(v_hub, 'null'::jsonb)
+  );
+end;
+$$;
+grant execute on function public.get_igrac_dashboard() to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 5) Neki helperi mogu bezbedno biti PARALLEL SAFE -> omogucava parallel plan
+--    za heavy agregate. Bezbedno je za STABLE SECURITY DEFINER bez side effecta.
+-- -----------------------------------------------------------------------------
+do $parsafe$
+declare
+  v_alters text[] := array[
+    'alter function public.has_role(public.app_role)           parallel safe',
+    'alter function public.my_club_id()                         parallel safe',
+    'alter function public.my_trener_or_klub_club_id()          parallel safe',
+    'alter function public.is_in_my_club(uuid)                  parallel safe',
+    'alter function public.can_view_league(bigint)              parallel safe',
+    'alter function public.can_view_club_team(bigint)           parallel safe',
+    'alter function public.can_view_club_team_sensitive(bigint) parallel safe',
+    'alter function public.can_view_club_trainings(bigint)      parallel safe',
+    'alter function public.can_manage_trainings(bigint)         parallel safe'
+  ];
+  v_sql text;
+begin
+  foreach v_sql in array v_alters loop
+    begin
+      execute v_sql;
+    exception
+      when undefined_function then
+        raise notice 'Skipping parallel safe (missing function): %', v_sql;
+      when others then
+        raise notice 'Skipping parallel safe (error: %): %', sqlerrm, v_sql;
+    end;
+  end loop;
+end
+$parsafe$;
+
+-- -----------------------------------------------------------------------------
+-- 6) ANALYZE: azuriramo statistike kako bi planner koristio nove indekse.
+-- -----------------------------------------------------------------------------
+do $anlz$
+declare
+  v_tables text[] := array[
+    'profiles','user_roles','role_creation_rules','clubs','leagues',
+    'league_groups','group_clubs','league_delegates','league_sudije',
+    'club_memberships','matches','match_events','match_rosters',
+    'match_officials','player_fees','user_licenses','trainings',
+    'training_attendance','club_tactic_plans','tactic_actions',
+    'spectator_memberships'
+  ];
+  v_t text;
+begin
+  foreach v_t in array v_tables loop
+    begin
+      execute format('analyze public.%I', v_t);
+    exception
+      when undefined_table then
+        null;
+      when others then
+        raise notice 'Skipping analyze %: %', v_t, sqlerrm;
+    end;
+  end loop;
+end
+$anlz$;
+
 notify pgrst, 'reload schema';
+
+-- =============================================================================
+-- FAZA F25: GLOBAL BACKEND OPTIMIZATIONS (svi roli)
+--   - Backend-only. Frontend se NE menja.
+--   - Svi RPC-ovi zadrzavaju ISTI potpis i ISTU JSON strukturu.
+--   - Idempotentno: moze se ponoviti vise puta bez posledica.
+--   - Schema-safe: svaki deo ima svoj zasebni DO blok/exception handling.
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- F25.1) Dodatni fino-podeseni indeksi (partial / functional)
+--        Schema-safe: preskace ako kolona/tabela ne postoje.
+-- -----------------------------------------------------------------------------
+do $f25idx$
+declare
+  v_defs text[] := array[
+    -- LIVE utakmice: polling zapisnicara i delegat match detail; partial indeks
+    -- drzi zapisnik kratkim pa je ovo vrlo brz index-only scan.
+    $q$create index if not exists idx_matches_live_only
+        on public.matches (id)
+        where status = 'live'::public.match_status$q$,
+    -- Scheduled utakmice po ligi (za delegat/klub "predstojece")
+    $q$create index if not exists idx_matches_scheduled_by_league
+        on public.matches (league_id, scheduled_at)
+        where status = 'scheduled'::public.match_status$q$,
+    -- Finished utakmice po ligi (standings/scorers)
+    $q$create index if not exists idx_matches_finished_by_league
+        on public.matches (league_id, scheduled_at desc)
+        where status = 'finished'::public.match_status$q$,
+    $q$create index if not exists idx_matches_finished_by_group
+        on public.matches (group_id, scheduled_at desc)
+        where status = 'finished'::public.match_status$q$,
+    -- match_events: samo scoring eventi (za sum/points agregate)
+    $q$create index if not exists idx_match_events_scoring
+        on public.match_events (match_id, club_id, points)
+        where event_type in ('free_throw','field','three')$q$,
+    -- match_events: samo faulovi (foul brojac u live screen-u)
+    $q$create index if not exists idx_match_events_fouls
+        on public.match_events (match_id, user_id)
+        where event_type = 'foul'$q$,
+    -- match_officials: brza provera ko je zapisnicar/sudija (partial)
+    $q$create index if not exists idx_match_officials_role_user
+        on public.match_officials (role, user_id, match_id)$q$,
+    -- user_licenses: sortirano po valid_until (za UI koji sortira licence)
+    $q$create index if not exists idx_user_licenses_user_valid
+        on public.user_licenses (user_id, valid_until desc)$q$,
+    -- club_memberships: samo aktivni (najcesci filter; 'active = true' je IMMUTABLE)
+    $q$create index if not exists idx_club_memberships_active
+        on public.club_memberships (user_id, member_role)
+        where active = true$q$,
+    -- player_fees: neplacene (coalesce je IMMUTABLE pa partial indeks prolazi)
+    $q$create index if not exists idx_player_fees_unpaid
+        on public.player_fees (player_id, period_month)
+        where coalesce(amount_paid,0) < coalesce(amount_due,0)$q$,
+    -- trainings: full indeks po scheduled_at (partial sa now() nije dozvoljen)
+    $q$create index if not exists idx_trainings_sched
+        on public.trainings (scheduled_at desc, club_id)$q$,
+    -- league_delegates brza lookup po user_id
+    $q$create index if not exists idx_league_delegates_user_league
+        on public.league_delegates (user_id, league_id)$q$
+  ];
+  v_sql text;
+begin
+  foreach v_sql in array v_defs loop
+    begin
+      execute v_sql;
+    exception
+      when undefined_column then
+        raise notice 'F25 idx skip (col): %', v_sql;
+      when undefined_table then
+        raise notice 'F25 idx skip (tbl): %', v_sql;
+      when undefined_object then
+        raise notice 'F25 idx skip (obj): %', v_sql;
+      when others then
+        raise notice 'F25 idx skip (%): %', sqlerrm, v_sql;
+    end;
+  end loop;
+end
+$f25idx$;
+
+-- -----------------------------------------------------------------------------
+-- F25.2) REWRITE: fn_roster_with_stats — 1 scan umesto 5 po igracu
+--        Ranije: 5 korelisanih subqueries * 12 igraca * 2 tima = 120 scan-ova
+--        kod svakog polling-a zapisnicara. Sada: 1 group-by agregat na
+--        match_events po utakmici + join sa roster-om.
+--        Potpis i return shape OSTAJU ISTI (jsonb).
+-- -----------------------------------------------------------------------------
+create or replace function public.fn_roster_with_stats(p_match_id bigint, p_club_id bigint)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with ev as (
+    select
+      e.user_id,
+      count(*) filter (where e.event_type = 'free_throw')::int as pts_ft,
+      count(*) filter (where e.event_type = 'field')::int       as pts_2,
+      count(*) filter (where e.event_type = 'three')::int       as pts_3,
+      count(*) filter (where e.event_type = 'foul')::int        as fouls,
+      coalesce(sum(e.points), 0)::int                           as total_points
+    from public.match_events e
+    where e.match_id = p_match_id
+    group by e.user_id
+  )
+  select coalesce(jsonb_agg(
+    jsonb_build_object(
+      'user_id',       mr.user_id,
+      'jersey_number', mr.jersey_number,
+      'display_name',  p.display_name,
+      'first_name',    p.first_name,
+      'last_name',     p.last_name,
+      'username',      p.username,
+      'pts_ft',        coalesce(ev.pts_ft, 0),
+      'pts_2',         coalesce(ev.pts_2, 0),
+      'pts_3',         coalesce(ev.pts_3, 0),
+      'fouls',         coalesce(ev.fouls, 0),
+      'total_points',  coalesce(ev.total_points, 0)
+    ) order by mr.jersey_number
+  ), '[]'::jsonb)
+  from public.match_rosters mr
+  left join public.profiles p on p.id = mr.user_id
+  left join ev               on ev.user_id = mr.user_id
+  where mr.match_id = p_match_id
+    and mr.club_id  = p_club_id;
+$$;
+grant execute on function public.fn_roster_with_stats(bigint, bigint) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- F25.3) REWRITE: refresh_match_live_scores — 1 scan umesto 2
+--        Agregira oba skora jednim prolazom uz FILTER.
+--        Potpis i return tip (void) OSTAJU ISTI.
+-- -----------------------------------------------------------------------------
+create or replace function public.refresh_match_live_scores(p_match_id bigint)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_home_club bigint;
+  v_away_club bigint;
+  v_home_pts int := 0;
+  v_away_pts int := 0;
+begin
+  select m.home_club_id, m.away_club_id
+    into v_home_club, v_away_club
+  from public.matches m
+  where m.id = p_match_id;
+
+  if not found then
+    return;
+  end if;
+
+  select
+    coalesce(sum(e.points) filter (where e.club_id = v_home_club), 0)::int,
+    coalesce(sum(e.points) filter (where e.club_id = v_away_club), 0)::int
+    into v_home_pts, v_away_pts
+  from public.match_events e
+  where e.match_id = p_match_id;
+
+  update public.matches
+  set home_score = v_home_pts,
+      away_score = v_away_pts
+  where id = p_match_id;
+end;
+$$;
+grant execute on function public.refresh_match_live_scores(bigint) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- F25.4) Oznaci vise stable RPC-ova kao PARALLEL SAFE
+--        (schema-safe, preskace ako funkcija ne postoji).
+-- -----------------------------------------------------------------------------
+do $f25ps$
+declare
+  v_alters text[] := array[
+    'alter function public.fn_roster_with_stats(bigint, bigint) parallel safe',
+    'alter function public.get_group_standings(bigint)           parallel safe',
+    'alter function public.get_league_top_scorers(bigint, int)   parallel safe',
+    'alter function public.get_league_overview(bigint)           parallel safe',
+    'alter function public.get_club_public_matches(bigint)       parallel safe',
+    'alter function public.get_igrac_match_hub()                 parallel safe',
+    'alter function public.get_my_trainings()                    parallel safe',
+    'alter function public.get_my_tactics()                      parallel safe',
+    'alter function public.get_klub_team_overview(bigint)        parallel safe',
+    'alter function public.get_my_club_context()                 parallel safe',
+    'alter function public.get_zapisnicar_match_detail(bigint)   parallel safe',
+    'alter function public.get_delegat_match_detail(bigint)      parallel safe',
+    'alter function public.get_trener_match_detail(bigint)       parallel safe',
+    'alter function public.get_match_conditions(bigint)          parallel safe'
+  ];
+  v_sql text;
+begin
+  foreach v_sql in array v_alters loop
+    begin
+      execute v_sql;
+    exception
+      when undefined_function then
+        raise notice 'F25 parallel skip (no fn): %', v_sql;
+      when others then
+        raise notice 'F25 parallel skip (%): %', sqlerrm, v_sql;
+    end;
+  end loop;
+end
+$f25ps$;
+
+-- -----------------------------------------------------------------------------
+-- F25.5) Finalni ANALYZE (da planner vidi sve nove partial indekse)
+-- -----------------------------------------------------------------------------
+do $f25anlz$
+declare
+  v_tables text[] := array[
+    'matches','match_events','match_rosters','match_officials',
+    'club_memberships','player_fees','user_licenses','trainings',
+    'training_attendance','club_tactic_plans','tactic_actions',
+    'league_delegates'
+  ];
+  v_t text;
+begin
+  foreach v_t in array v_tables loop
+    begin
+      execute format('analyze public.%I', v_t);
+    exception
+      when undefined_table then
+        null;
+      when others then
+        raise notice 'F25 analyze skip %: %', v_t, sqlerrm;
+    end;
+  end loop;
+end
+$f25anlz$;
+
+notify pgrst, 'reload schema';
+-- =============================================================================
+-- END FAZA F25
+-- =============================================================================
