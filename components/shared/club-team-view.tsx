@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
+import { ClubPublicMatchesView } from '@/components/shared/club-public-matches-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { openLicensePdf } from '@/lib/license-viewer';
@@ -143,6 +144,9 @@ export function ClubTeamView({ clubId, onOpenUser, onBack, showBackButton = true
           <ThemedText type="subtitle">Treneri ({trainers.length})</ThemedText>
           {trainers.length === 0 ? <ThemedText>Nema trenera u klubu.</ThemedText> : null}
           {trainers.map(renderMember)}
+
+          <ThemedText type="subtitle" style={styles.sectionGap}>Utakmice</ThemedText>
+          <ClubPublicMatchesView clubId={clubId} />
         </>
       ) : null}
     </ScrollView>
@@ -182,4 +186,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   secondaryButtonText: { color: '#0a7ea4', fontWeight: '600' },
+  sectionGap: { marginTop: 12 },
 });

@@ -23,19 +23,31 @@ export default function LoginScreen() {
     setLoading(true);
     setErrorMessage('');
 
-    const primaryEmail = usernameToEmail(username);
-    let { error } = await supabase.auth.signInWithPassword({
-      email: primaryEmail,
-      password,
-    });
+    const tried = new Set<string>();
+    let error: { message: string } | null = null;
 
-    // Fallback za legacy korisnike koji su napravljeni sa pravim email-om.
-    if (error && username.includes('@') && username.toLowerCase().trim() !== primaryEmail) {
-      const fallback = await supabase.auth.signInWithPassword({
-        email: username.toLowerCase().trim(),
-        password,
-      });
-      error = fallback.error;
+    const attempt = async (email: string | null | undefined) => {
+      if (!email) return false;
+      const normalized = email.toLowerCase().trim();
+      if (!normalized || tried.has(normalized)) return false;
+      tried.add(normalized);
+      const res = await supabase.auth.signInWithPassword({ email: normalized, password });
+      error = res.error;
+      return !res.error;
+    };
+
+    // 1) Pokusaj sa stvarnim auth email-om iz baze (resava razlike u formiranju email-a
+    //    kada username nema tacku, i slicne edge case-ove)
+    const { data: resolvedEmail } = await supabase.rpc('get_login_email', { p_username: username });
+    const ok1 = await attempt(typeof resolvedEmail === 'string' ? resolvedEmail : null);
+
+    // 2) Fallback: sinteticki email koji pravimo iz username-a
+    const primaryEmail = usernameToEmail(username);
+    const ok2 = ok1 || (await attempt(primaryEmail));
+
+    // 3) Legacy: korisnik je uneo pun email
+    if (!ok2 && username.includes('@')) {
+      await attempt(username);
     }
 
     if (error) {
@@ -70,6 +82,11 @@ export default function LoginScreen() {
           placeholder="Username"
           placeholderTextColor="#888"
           autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete="username"
+          textContentType="username"
+          keyboardType="email-address"
           value={username}
           onChangeText={setUsername}
           style={styles.input}

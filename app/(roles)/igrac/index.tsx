@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 
+import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { UserDetailView } from '@/components/shared/user-detail-view';
@@ -10,9 +11,11 @@ import { supabase } from '@/lib/supabase';
 
 type AttendanceRow = {
   id: number;
-  training_date: string;
-  status: string;
-  note: string | null;
+  scheduled_at: string;
+  topic: string;
+  venue: string | null;
+  present: boolean;
+  marked: boolean;
 };
 
 type FeeRow = {
@@ -33,12 +36,19 @@ type StatRow = {
   assists: number;
 };
 
+type TacticActionRow = {
+  id: number;
+  name: string;
+  description: string | null;
+  position: number;
+};
+
 type TacticRow = {
   id: number;
-  club_id: number;
-  title: string;
-  training_date: string | null;
-  created_at: string;
+  name: string;
+  kind: 'attack' | 'defense';
+  description: string | null;
+  actions: TacticActionRow[];
 };
 
 type ClubContext = {
@@ -57,23 +67,57 @@ type GroupClub = {
   name: string;
 };
 
-type MatchRow = {
+type HubUpcoming = {
   id: number;
-  home_club_id: number;
-  away_club_id: number;
   scheduled_at: string;
   venue: string | null;
   status: string;
+  home_club_id: number;
+  away_club_id: number;
+  home_club_name: string | null;
+  away_club_name: string | null;
   home_score: number | null;
   away_score: number | null;
-  home_club_name?: string | null;
-  away_club_name?: string | null;
+  side: 'home' | 'away';
 };
 
-type MatchesPayload = {
-  context: ClubContext | null;
-  home: MatchRow[];
-  away: MatchRow[];
+type HubPlayed = {
+  match_id: number;
+  scheduled_at: string;
+  home_club_name: string | null;
+  away_club_name: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  side: 'home' | 'away';
+  pts_ft: number;
+  pts_2: number;
+  pts_3: number;
+  fouls: number;
+  total_points: number;
+  result: string;
+};
+
+type HubAgg = {
+  games_played: number;
+  total_points: number;
+  avg_points: number;
+  pts_ft: number;
+  pts_2: number;
+  pts_3: number;
+  fouls: number;
+  pct_points_ft: number;
+  pct_points_2: number;
+  pct_points_3: number;
+};
+
+type MatchHubPayload = {
+  club_id: number | null;
+  league_id: number | null;
+  league_name: string | null;
+  upcoming: HubUpcoming[];
+  played: HubPlayed[];
+  season: HubAgg;
+  career: HubAgg;
 };
 
 type PlayerTabKey = 'attendance' | 'fees' | 'stats' | 'tactics' | 'profile' | 'league' | 'schedule';
@@ -88,8 +132,7 @@ export default function IgracHomeScreen() {
   const [tactics, setTactics] = useState<TacticRow[]>([]);
   const [clubContext, setClubContext] = useState<ClubContext | null>(null);
   const [groupClubs, setGroupClubs] = useState<GroupClub[]>([]);
-  const [homeMatches, setHomeMatches] = useState<MatchRow[]>([]);
-  const [awayMatches, setAwayMatches] = useState<MatchRow[]>([]);
+  const [matchHub, setMatchHub] = useState<MatchHubPayload | null>(null);
   const [activeTab, setActiveTab] = useState<PlayerTabKey>('attendance');
 
   const onLogout = async () => {
@@ -114,35 +157,35 @@ export default function IgracHomeScreen() {
 
     setUserId(user.id);
 
-    const [attendanceRes, feesRes, statsRes, membershipsRes, clubCtxRes] = await Promise.all([
-      supabase
-        .from('player_attendance')
-        .select('id, training_date, status, note')
-        .eq('player_id', user.id)
-        .order('training_date', { ascending: false })
-        .limit(20),
-      supabase
-        .from('player_fees')
-        .select('id, period_month, amount_due, amount_paid, status, due_date')
-        .eq('player_id', user.id)
-        .order('period_month', { ascending: false })
-        .limit(12),
-      supabase
-        .from('player_stats')
-        .select('id, match_date, opponent, points, rebounds, assists')
-        .eq('player_id', user.id)
-        .order('match_date', { ascending: false })
-        .limit(20),
-      supabase.from('club_memberships').select('club_id').eq('user_id', user.id).eq('active', true),
-      supabase.rpc('get_my_club_context'),
-    ]);
+    const [attendanceRes, feesRes, statsRes, membershipsRes, clubCtxRes, hubRes, tacticsRes] =
+      await Promise.all([
+        supabase.rpc('get_my_trainings'),
+        supabase
+          .from('player_fees')
+          .select('id, period_month, amount_due, amount_paid, status, due_date')
+          .eq('player_id', user.id)
+          .order('period_month', { ascending: false })
+          .limit(12),
+        supabase
+          .from('player_stats')
+          .select('id, match_date, opponent, points, rebounds, assists')
+          .eq('player_id', user.id)
+          .order('match_date', { ascending: false })
+          .limit(20),
+        supabase.from('club_memberships').select('club_id').eq('user_id', user.id).eq('active', true),
+        supabase.rpc('get_my_club_context'),
+        supabase.rpc('get_igrac_match_hub'),
+        supabase.rpc('get_my_tactics'),
+      ]);
 
     if (
       attendanceRes.error ||
       feesRes.error ||
       statsRes.error ||
       membershipsRes.error ||
-      clubCtxRes.error
+      clubCtxRes.error ||
+      hubRes.error ||
+      tacticsRes.error
     ) {
       setErrorMessage(
         attendanceRes.error?.message ||
@@ -150,32 +193,26 @@ export default function IgracHomeScreen() {
           statsRes.error?.message ||
           membershipsRes.error?.message ||
           clubCtxRes.error?.message ||
+          hubRes.error?.message ||
+          tacticsRes.error?.message ||
           'Greska pri ucitavanju podataka igraca.'
       );
       setLoading(false);
       return;
     }
 
-    const clubIds = (membershipsRes.data ?? []).map((m) => m.club_id);
     const ctx = (clubCtxRes.data ?? null) as ClubContext | null;
     setClubContext(ctx);
 
-    let tacticsRows: TacticRow[] = [];
-    if (clubIds.length > 0) {
-      const tacticsRes = await supabase
-        .from('club_tactics')
-        .select('id, club_id, title, training_date, created_at')
-        .in('club_id', clubIds)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(30);
-      if (tacticsRes.error) {
-        setErrorMessage(tacticsRes.error.message);
-        setLoading(false);
-        return;
-      }
-      tacticsRows = tacticsRes.data ?? [];
-    }
+    const tacticsPayload = tacticsRes.data as { tactics?: TacticRow[] } | null;
+    const tacticsRows: TacticRow[] = tacticsPayload?.tactics ?? [];
+
+    const attendancePayload = attendanceRes.data as
+      | { trainings?: Omit<AttendanceRow, 'id'> & { id: number }[] }
+      | { trainings?: AttendanceRow[] }
+      | null;
+    const attendanceRows: AttendanceRow[] =
+      ((attendancePayload as { trainings?: AttendanceRow[] } | null)?.trainings ?? []) as AttendanceRow[];
 
     let groupClubRows: GroupClub[] = [];
     if (ctx?.group_id) {
@@ -195,39 +232,13 @@ export default function IgracHomeScreen() {
       }
     }
 
-    let homeRows: MatchRow[] = [];
-    let awayRows: MatchRow[] = [];
-    if (ctx?.club_id) {
-      const matchesRpc = await supabase.rpc('get_klub_matches', { p_club_id: ctx.club_id });
-      if (!matchesRpc.error && matchesRpc.data) {
-        const payload = matchesRpc.data as MatchesPayload;
-        homeRows = payload.home ?? [];
-        awayRows = payload.away ?? [];
-      } else {
-        const [hRes, aRes] = await Promise.all([
-          supabase
-            .from('matches')
-            .select('id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
-            .eq('home_club_id', ctx.club_id)
-            .order('scheduled_at', { ascending: true }),
-          supabase
-            .from('matches')
-            .select('id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
-            .eq('away_club_id', ctx.club_id)
-            .order('scheduled_at', { ascending: true }),
-        ]);
-        if (!hRes.error) homeRows = (hRes.data ?? []) as MatchRow[];
-        if (!aRes.error) awayRows = (aRes.data ?? []) as MatchRow[];
-      }
-    }
+    setMatchHub((hubRes.data as MatchHubPayload) ?? null);
 
-    setAttendance(attendanceRes.data ?? []);
+    setAttendance(attendanceRows);
     setFees(feesRes.data ?? []);
     setStats(statsRes.data ?? []);
     setTactics(tacticsRows);
     setGroupClubs(groupClubRows);
-    setHomeMatches(homeRows);
-    setAwayMatches(awayRows);
     setLoading(false);
   }, []);
 
@@ -276,15 +287,23 @@ export default function IgracHomeScreen() {
       ) : null}
 
       {activeTab === 'attendance' ? (
-        <Section title="Moje prisustvo">
+        <Section title="Moje prisustvo treninzima">
           {attendance.length === 0 ? (
-            <ThemedText>Nema unosa.</ThemedText>
+            <ThemedText>Nema zakazanih treninga.</ThemedText>
           ) : (
             attendance.map((row) => (
-              <ThemedText key={row.id}>
-                {row.training_date} - {row.status}
-                {row.note ? ` (${row.note})` : ''}
-              </ThemedText>
+              <ThemedView key={row.id} style={styles.attendanceCard}>
+                <ThemedText type="defaultSemiBold">{row.topic}</ThemedText>
+                <ThemedText>Termin: {formatDateTime(row.scheduled_at)}</ThemedText>
+                {row.venue ? <ThemedText>Mesto: {row.venue}</ThemedText> : null}
+                <ThemedText
+                  style={[
+                    styles.attendanceBadge,
+                    row.present ? styles.attendancePresent : styles.attendanceAbsent,
+                  ]}>
+                  {row.present ? 'Prisustvovao' : row.marked ? 'Odsutan' : 'Nije zavedeno'}
+                </ThemedText>
+              </ThemedView>
             ))
           )}
         </Section>
@@ -323,11 +342,32 @@ export default function IgracHomeScreen() {
           {tactics.length === 0 ? (
             <ThemedText>Nema aktivnih taktika.</ThemedText>
           ) : (
-            tactics.map((row) => (
-              <ThemedText key={row.id}>
-                [{row.club_id}] {row.title}
-                {row.training_date ? ` - ${row.training_date}` : ''}
-              </ThemedText>
+            tactics.map((t) => (
+              <ThemedView key={t.id} style={styles.tacticCard}>
+                <ThemedView style={styles.tacticHeader}>
+                  <ThemedText type="defaultSemiBold">{t.name}</ThemedText>
+                  <ThemedText
+                    style={[
+                      styles.tacticKindBadge,
+                      t.kind === 'attack' ? styles.tacticKindAttack : styles.tacticKindDefense,
+                    ]}>
+                    {t.kind === 'attack' ? 'Napad' : 'Odbrana'}
+                  </ThemedText>
+                </ThemedView>
+                {t.description ? <ThemedText style={styles.muted}>{t.description}</ThemedText> : null}
+                {t.actions.length === 0 ? (
+                  <ThemedText style={styles.muted}>Nema akcija.</ThemedText>
+                ) : (
+                  t.actions.map((a) => (
+                    <ThemedView key={a.id} style={styles.actionMini}>
+                      <ThemedText type="defaultSemiBold">
+                        {a.position}. {a.name}
+                      </ThemedText>
+                      {a.description ? <ThemedText>{a.description}</ThemedText> : null}
+                    </ThemedView>
+                  ))
+                )}
+              </ThemedView>
             ))
           )}
         </Section>
@@ -361,13 +401,26 @@ export default function IgracHomeScreen() {
                 <ThemedText>Grupa jos nije popunjena.</ThemedText>
               ) : (
                 groupClubs.map((c) => (
-                  <ThemedText key={c.id}>
-                    {c.id === clubContext.club_id ? '▸ ' : '• '}
-                    {c.name}
-                    {c.id === clubContext.club_id ? ' (tvoj klub)' : ''}
-                  </ThemedText>
+                  <Pressable
+                    key={c.id}
+                    onPress={() => router.push(`/igrac/klub/${c.id}`)}
+                    style={[styles.matchRow, c.id === clubContext.club_id && styles.cardMine]}>
+                    <ThemedText type="defaultSemiBold">
+                      {c.name}
+                      {c.id === clubContext.club_id ? '  (tvoj klub)' : ''}
+                    </ThemedText>
+                    <ThemedText style={styles.openHint}>Otvori tim ▸</ThemedText>
+                  </Pressable>
                 ))
               )}
+
+              {clubContext.league_id ? (
+                <LeagueCompetitionView
+                  leagueId={clubContext.league_id}
+                  onOpenPlayer={(uid) => router.push(`/igrac/korisnik/${uid}`)}
+                  onOpenClub={(cid) => router.push(`/igrac/klub/${cid}`)}
+                />
+              ) : null}
             </>
           )}
         </Section>
@@ -375,45 +428,94 @@ export default function IgracHomeScreen() {
 
       {activeTab === 'schedule' ? (
         <>
-          <Section title="Domace utakmice">
-            {homeMatches.length === 0 ? (
-              <ThemedText>Nema zakazanih domacih utakmica.</ThemedText>
-            ) : (
-              homeMatches.map((m) => (
-                <ThemedView key={m.id} style={styles.matchRow}>
-                  <ThemedText type="defaultSemiBold">
-                    vs {m.away_club_name ?? `#${m.away_club_id}`}
-                  </ThemedText>
-                  <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                  {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                  <ThemedText>Status: {m.status}</ThemedText>
-                  {m.home_score !== null && m.away_score !== null ? (
-                    <ThemedText>Rezultat: {m.home_score} - {m.away_score}</ThemedText>
-                  ) : null}
-                </ThemedView>
-              ))
-            )}
-          </Section>
+          {!matchHub || !matchHub.club_id ? (
+            <Section title="Utakmice">
+              <ThemedText>Nisi u klubu kao igrac ili nema podataka.</ThemedText>
+            </Section>
+          ) : (
+            <>
+              <Section title="Predstojece utakmice">
+                {matchHub.upcoming.length === 0 ? (
+                  <ThemedText>Nema predstojecih utakmica.</ThemedText>
+                ) : (
+                  matchHub.upcoming.map((m) => {
+                    const opp =
+                      m.side === 'home' ? (m.away_club_name ?? `#${m.away_club_id}`) : (m.home_club_name ?? `#${m.home_club_id}`);
+                    const prefix = m.side === 'home' ? 'vs' : '@';
+                    return (
+                      <ThemedView key={m.id} style={styles.matchRow}>
+                        <ThemedText type="defaultSemiBold">
+                          {prefix} {opp}
+                        </ThemedText>
+                        <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                        {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                        <ThemedText>Status: {m.status}</ThemedText>
+                        {m.home_score != null && m.away_score != null ? (
+                          <ThemedText>
+                            Rezultat (uzivo): {m.home_score} - {m.away_score}
+                          </ThemedText>
+                        ) : null}
+                      </ThemedView>
+                    );
+                  })
+                )}
+              </Section>
 
-          <Section title="Gostujuce utakmice">
-            {awayMatches.length === 0 ? (
-              <ThemedText>Nema zakazanih gostujucih utakmica.</ThemedText>
-            ) : (
-              awayMatches.map((m) => (
-                <ThemedView key={m.id} style={styles.matchRow}>
-                  <ThemedText type="defaultSemiBold">
-                    @ {m.home_club_name ?? `#${m.home_club_id}`}
-                  </ThemedText>
-                  <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                  {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                  <ThemedText>Status: {m.status}</ThemedText>
-                  {m.home_score !== null && m.away_score !== null ? (
-                    <ThemedText>Rezultat: {m.home_score} - {m.away_score}</ThemedText>
-                  ) : null}
-                </ThemedView>
-              ))
-            )}
-          </Section>
+              <Section title="Odigrane utakmice (statistika sa terena)">
+                {matchHub.played.length === 0 ? (
+                  <ThemedText>Nema odigranih utakmica.</ThemedText>
+                ) : (
+                  matchHub.played.map((m) => {
+                    const opp =
+                      m.side === 'home' ? (m.away_club_name ?? '-') : (m.home_club_name ?? '-');
+                    const prefix = m.side === 'home' ? 'vs' : '@';
+                    return (
+                      <ThemedView key={m.match_id} style={styles.matchRow}>
+                        <ThemedText type="defaultSemiBold">
+                          {formatDate(m.scheduled_at)} — {prefix} {opp} ({m.result})
+                        </ThemedText>
+                        <ThemedText>
+                          Rezultat: {m.home_score ?? '-'} : {m.away_score ?? '-'}
+                        </ThemedText>
+                        <ThemedText>
+                          Tvoji poeni: {m.total_points} (+1: {m.pts_ft}, +2: {m.pts_2}, +3: {m.pts_3})
+                        </ThemedText>
+                        <ThemedText>Licne greske: {m.fouls}</ThemedText>
+                      </ThemedView>
+                    );
+                  })
+                )}
+              </Section>
+
+              <Section title="SEZONA">
+                <ThemedText>Meceva: {matchHub.season.games_played}</ThemedText>
+                <ThemedText>Ukupno poena: {matchHub.season.total_points}</ThemedText>
+                <ThemedText>Prosek po mecu: {matchHub.season.avg_points}</ThemedText>
+                <ThemedText>
+                  +1 / +2 / +3 (broj): {matchHub.season.pts_ft} / {matchHub.season.pts_2} / {matchHub.season.pts_3}
+                </ThemedText>
+                <ThemedText>Licne greske (ukupno): {matchHub.season.fouls}</ThemedText>
+                <ThemedText>
+                  Procenat poena iz +1: {matchHub.season.pct_points_ft}% · iz +2: {matchHub.season.pct_points_2}% · iz +3:{' '}
+                  {matchHub.season.pct_points_3}%
+                </ThemedText>
+              </Section>
+
+              <Section title="Karijera (svi zavrseni mecevi u klubu)">
+                <ThemedText>Meceva: {matchHub.career.games_played}</ThemedText>
+                <ThemedText>Ukupno poena: {matchHub.career.total_points}</ThemedText>
+                <ThemedText>Prosek po mecu: {matchHub.career.avg_points}</ThemedText>
+                <ThemedText>
+                  +1 / +2 / +3 (broj): {matchHub.career.pts_ft} / {matchHub.career.pts_2} / {matchHub.career.pts_3}
+                </ThemedText>
+                <ThemedText>Licne greske (ukupno): {matchHub.career.fouls}</ThemedText>
+                <ThemedText>
+                  Procenat poena iz +1: {matchHub.career.pct_points_ft}% · iz +2: {matchHub.career.pct_points_2}% · iz +3:{' '}
+                  {matchHub.career.pct_points_3}%
+                </ThemedText>
+              </Section>
+            </>
+          )}
         </>
       ) : null}
     </ScrollView>
@@ -429,6 +531,10 @@ function formatDate(iso: string | null | undefined) {
   } catch {
     return iso;
   }
+}
+
+function formatDateTime(iso: string | null | undefined) {
+  return formatDate(iso);
 }
 
 type SectionProps = {
@@ -533,7 +639,64 @@ const styles = StyleSheet.create({
     padding: 8,
     gap: 4,
   },
+  cardMine: {
+    borderColor: '#0a7ea4',
+    backgroundColor: '#eaf4f8',
+  },
+  openHint: {
+    color: '#0a7ea4',
+    fontWeight: '600',
+    fontSize: 12,
+  },
   errorText: {
     color: '#c53939',
   },
+  attendanceCard: {
+    borderWidth: 1,
+    borderColor: '#888',
+    borderRadius: 6,
+    padding: 10,
+    gap: 2,
+  },
+  attendanceBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  attendancePresent: { backgroundColor: '#0a7ea4', color: '#fff' },
+  attendanceAbsent: { backgroundColor: '#eee', color: '#666' },
+  tacticCard: {
+    borderWidth: 1,
+    borderColor: '#888',
+    borderRadius: 8,
+    padding: 10,
+    gap: 6,
+  },
+  tacticHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  tacticKindBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    overflow: 'hidden',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tacticKindAttack: { backgroundColor: '#0a7ea4', color: '#fff' },
+  tacticKindDefense: { backgroundColor: '#c53939', color: '#fff' },
+  actionMini: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#0a7ea4',
+    paddingLeft: 8,
+    paddingVertical: 2,
+  },
+  muted: { color: '#888', fontStyle: 'italic' },
 });

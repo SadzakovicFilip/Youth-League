@@ -203,6 +203,12 @@ export default function DelegatUtakmiceScreen() {
               />
             </ThemedView>
 
+            <Pressable
+              style={styles.detailButton}
+              onPress={() => router.push(`/delegat/utakmica/${m.id}` as never)}>
+              <ThemedText style={styles.detailButtonText}>Uslovi i start utakmice →</ThemedText>
+            </Pressable>
+
             {isBusy ? <ActivityIndicator /> : null}
           </ThemedView>
         );
@@ -245,4 +251,14 @@ const styles = StyleSheet.create({
   selectsRow: { flexDirection: 'row', gap: 10 },
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
+  detailButton: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#0a7ea4',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  detailButtonText: { color: '#0a7ea4', fontWeight: '600' },
 });

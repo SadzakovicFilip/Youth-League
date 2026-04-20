@@ -43,6 +43,58 @@ type Payload = {
   can_view_sensitive?: boolean;
 };
 
+type HubUpcoming = {
+  id: number;
+  scheduled_at: string;
+  venue: string | null;
+  status: string;
+  home_club_name: string | null;
+  away_club_name: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  side: 'home' | 'away';
+};
+
+type HubPlayed = {
+  match_id: number;
+  scheduled_at: string;
+  home_club_name: string | null;
+  away_club_name: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  side: 'home' | 'away';
+  pts_ft: number;
+  pts_2: number;
+  pts_3: number;
+  fouls: number;
+  total_points: number;
+  result: string;
+};
+
+type HubAgg = {
+  games_played: number;
+  total_points: number;
+  avg_points: number;
+  pts_ft: number;
+  pts_2: number;
+  pts_3: number;
+  fouls: number;
+  pct_points_ft: number;
+  pct_points_2: number;
+  pct_points_3: number;
+};
+
+type StatsPayload = {
+  authorized: boolean;
+  club_id?: number | null;
+  league_id?: number | null;
+  league_name?: string | null;
+  upcoming?: HubUpcoming[];
+  played?: HubPlayed[];
+  season?: HubAgg;
+  career?: HubAgg;
+};
+
 export type UserDetailViewProps = {
   userId: string;
   onBack?: () => void;
@@ -53,6 +105,7 @@ export function UserDetailView({ userId, onBack, showBackButton = true }: UserDe
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
+  const [stats, setStats] = useState<StatsPayload | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -63,10 +116,26 @@ export function UserDetailView({ userId, onBack, showBackButton = true }: UserDe
     if (error) {
       setErrorMessage(error.message);
       setData(null);
+      setStats(null);
       setLoading(false);
       return;
     }
-    setData((rpcData ?? null) as Payload | null);
+    const payload = (rpcData ?? null) as Payload | null;
+    setData(payload);
+
+    if (payload?.role === 'igrac') {
+      const { data: statsData, error: statsErr } = await supabase.rpc('get_user_match_stats', {
+        p_user_id: userId,
+      });
+      if (statsErr) {
+        setStats({ authorized: false });
+      } else {
+        setStats((statsData ?? null) as StatsPayload | null);
+      }
+    } else {
+      setStats(null);
+    }
+
     setLoading(false);
   }, [userId]);
 
@@ -155,10 +224,90 @@ export function UserDetailView({ userId, onBack, showBackButton = true }: UserDe
               <ThemedText>Regija: {m.region_name ?? '-'}</ThemedText>
             </ThemedView>
           ))}
+
+          {data?.role === 'igrac' && stats ? (
+            stats.authorized ? (
+              <>
+                <ThemedText type="subtitle">Odigrane utakmice</ThemedText>
+                {(stats.played ?? []).length === 0 ? (
+                  <ThemedText>Nema odigranih utakmica.</ThemedText>
+                ) : (
+                  (stats.played ?? []).map((m) => {
+                    const opp = m.side === 'home' ? (m.away_club_name ?? '-') : (m.home_club_name ?? '-');
+                    const prefix = m.side === 'home' ? 'vs' : '@';
+                    return (
+                      <ThemedView key={m.match_id} style={styles.card}>
+                        <ThemedText type="defaultSemiBold">
+                          {formatDate(m.scheduled_at)} — {prefix} {opp} ({m.result})
+                        </ThemedText>
+                        <ThemedText>
+                          Rezultat: {m.home_score ?? '-'} : {m.away_score ?? '-'}
+                        </ThemedText>
+                        <ThemedText>
+                          Poeni: {m.total_points} (+1: {m.pts_ft}, +2: {m.pts_2}, +3: {m.pts_3})
+                        </ThemedText>
+                        <ThemedText>Licne greske: {m.fouls}</ThemedText>
+                      </ThemedView>
+                    );
+                  })
+                )}
+
+                <ThemedText type="subtitle">SEZONA</ThemedText>
+                <ThemedView style={styles.card}>
+                  <ThemedText>Meceva: {stats.season?.games_played ?? 0}</ThemedText>
+                  <ThemedText>Ukupno poena: {stats.season?.total_points ?? 0}</ThemedText>
+                  <ThemedText>Prosek po mecu: {stats.season?.avg_points ?? 0}</ThemedText>
+                  <ThemedText>
+                    +1 / +2 / +3 (broj): {stats.season?.pts_ft ?? 0} / {stats.season?.pts_2 ?? 0} /{' '}
+                    {stats.season?.pts_3 ?? 0}
+                  </ThemedText>
+                  <ThemedText>Licne greske (ukupno): {stats.season?.fouls ?? 0}</ThemedText>
+                  <ThemedText>
+                    Procenat poena iz +1: {stats.season?.pct_points_ft ?? 0}% · iz +2:{' '}
+                    {stats.season?.pct_points_2 ?? 0}% · iz +3: {stats.season?.pct_points_3 ?? 0}%
+                  </ThemedText>
+                </ThemedView>
+
+                <ThemedText type="subtitle">Karijera</ThemedText>
+                <ThemedView style={styles.card}>
+                  <ThemedText>Meceva: {stats.career?.games_played ?? 0}</ThemedText>
+                  <ThemedText>Ukupno poena: {stats.career?.total_points ?? 0}</ThemedText>
+                  <ThemedText>Prosek po mecu: {stats.career?.avg_points ?? 0}</ThemedText>
+                  <ThemedText>
+                    +1 / +2 / +3 (broj): {stats.career?.pts_ft ?? 0} / {stats.career?.pts_2 ?? 0} /{' '}
+                    {stats.career?.pts_3 ?? 0}
+                  </ThemedText>
+                  <ThemedText>Licne greske (ukupno): {stats.career?.fouls ?? 0}</ThemedText>
+                  <ThemedText>
+                    Procenat poena iz +1: {stats.career?.pct_points_ft ?? 0}% · iz +2:{' '}
+                    {stats.career?.pct_points_2 ?? 0}% · iz +3: {stats.career?.pct_points_3 ?? 0}%
+                  </ThemedText>
+                </ThemedView>
+              </>
+            ) : (
+              <ThemedView style={styles.card}>
+                <ThemedText type="subtitle">Statistika</ThemedText>
+                <ThemedText style={styles.muted}>
+                  Statistiku ovog igraca mogu da pogledaju samo savez, delegat lige i clanovi klubova iz iste lige.
+                </ThemedText>
+              </ThemedView>
+            )
+          ) : null}
         </>
       ) : null}
     </ScrollView>
   );
+}
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return '-';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
 const styles = StyleSheet.create({

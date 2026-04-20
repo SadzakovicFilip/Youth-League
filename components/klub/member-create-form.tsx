@@ -148,6 +148,8 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry }: Fie
         placeholderTextColor="#888"
         secureTextEntry={secureTextEntry}
         autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
         style={styles.input}
       />
     </ThemedView>

@@ -43,6 +43,12 @@ const TRAINING_SECTIONS: Array<{ id: string; title: string; description: string;
     description: 'Pregled svih klubova u tvojoj ligi, njihovih timova i licenci.',
     href: '/trener/moja-liga',
   },
+  {
+    id: 'takmicenje',
+    title: 'TAKMICENJE',
+    description: 'Tabela grupe i lista najboljih strelaca u tvojoj ligi.',
+    href: '/trener/takmicenje',
+  },
 ] as const;
 
 export default function TrenerHomeScreen() {

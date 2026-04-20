@@ -2,7 +2,7 @@ export function sanitizeUsername(username: string): string {
   return username
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '.')
+    .replace(/\s+/g, '')
     .replace(/[^a-z0-9._-]/g, '');
 }
 

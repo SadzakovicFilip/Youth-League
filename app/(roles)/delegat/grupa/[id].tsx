@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
@@ -106,6 +107,18 @@ export default function DelegatGrupaDetailScreen() {
           <ThemedText style={styles.hint}>Otvori tim ▸</ThemedText>
         </Pressable>
       ))}
+
+      {group?.league_id ? (
+        <>
+          <ThemedView style={styles.divider} />
+          <LeagueCompetitionView
+            leagueId={group.league_id}
+            singleGroupId={groupId}
+            onOpenPlayer={(uid) => router.push(`/delegat/korisnik/${uid}`)}
+            onOpenClub={(cid) => router.push(`/delegat/klub/${cid}`)}
+          />
+        </>
+      ) : null}
     </ScrollView>
   );
 }
@@ -124,4 +137,5 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderColor: '#0a7ea4', borderRadius: 8, padding: 10, gap: 4 },
   errorText: { color: '#c53939' },
   hint: { color: '#0a7ea4', fontWeight: '600' },
+  divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
 });

@@ -184,6 +184,8 @@ function Field({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
         style={styles.input}
       />
     </ThemedView>

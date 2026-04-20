@@ -56,6 +56,8 @@ export default function KlubHomeScreen() {
         <ActionCard label="Dodaj zapisnicara" onPress={() => router.push('/klub/dodaj-zapisnicara')} />
         <ActionCard label="Tim i clanarine" onPress={() => router.push('/klub/tim')} />
         <ActionCard label="Utakmice (domacin/gost)" onPress={() => router.push('/klub/utakmice')} />
+        <ActionCard label="Moja liga (drugi klubovi)" onPress={() => router.push('/klub/moja-liga')} />
+        <ActionCard label="Takmicenje (tabela i strelci)" onPress={() => router.push('/klub/takmicenje')} />
       </ThemedView>
     </ScrollView>
   );

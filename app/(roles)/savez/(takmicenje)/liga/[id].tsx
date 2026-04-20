@@ -3,6 +3,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { sanitizeUsername } from '@/lib/auth';
@@ -462,6 +463,8 @@ export default function LigaDetailScreen() {
             placeholder="Username (npr. direktor.partizan)"
             placeholderTextColor="#888"
             autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
             style={styles.input}
           />
           <TextInput
@@ -534,6 +537,8 @@ export default function LigaDetailScreen() {
             placeholder="Username (npr. delegat.prva)"
             placeholderTextColor="#888"
             autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
             style={styles.input}
           />
           <TextInput
@@ -618,6 +623,8 @@ export default function LigaDetailScreen() {
             placeholder="Username (npr. sudija.petrovic)"
             placeholderTextColor="#888"
             autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
             style={styles.input}
           />
           <TextInput
@@ -752,6 +759,13 @@ export default function LigaDetailScreen() {
           </ThemedView>
         </Pressable>
       ))}
+
+      <ThemedView style={styles.divider} />
+      <LeagueCompetitionView
+        leagueId={leagueId}
+        onOpenPlayer={(uid) => router.push(`/savez/korisnik/${uid}`)}
+        onOpenClub={(cid) => router.push(`/savez/klub/${cid}`)}
+      />
     </ScrollView>
   );
 }
@@ -777,6 +791,7 @@ const styles = StyleSheet.create({
   sectionCard: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10 },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
   chevron: { fontSize: 16, opacity: 0.8 },
+  divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: '#666',

@@ -3,6 +3,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { sanitizeUsername } from '@/lib/auth';
@@ -245,6 +246,8 @@ export default function DelegatLigaDetailScreen() {
             placeholder="Username (npr. sudija.petrovic)"
             placeholderTextColor="#888"
             autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
             style={styles.input}
           />
           <TextInput
@@ -336,6 +339,13 @@ export default function DelegatLigaDetailScreen() {
       <Pressable style={styles.primaryButton} onPress={() => router.push(`/delegat/utakmice/${leagueId}`)}>
         <ThemedText style={styles.primaryButtonText}>Raspored sudija za utakmice ▸</ThemedText>
       </Pressable>
+
+      <ThemedView style={styles.divider} />
+      <LeagueCompetitionView
+        leagueId={leagueId}
+        onOpenPlayer={(uid) => router.push(`/delegat/korisnik/${uid}`)}
+        onOpenClub={(cid) => router.push(`/delegat/klub/${cid}`)}
+      />
     </ScrollView>
   );
 }
@@ -408,4 +418,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a7ea4',
   },
   primaryButtonText: { color: '#fff', fontWeight: '600' },
+  divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
 });

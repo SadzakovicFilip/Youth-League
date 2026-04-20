@@ -45,6 +45,10 @@ export default function KlubLayout() {
       <Tabs.Screen name="dodaj-igraca" options={{ href: null }} />
       <Tabs.Screen name="dodaj-trenera" options={{ href: null }} />
       <Tabs.Screen name="dodaj-zapisnicara" options={{ href: null }} />
+      <Tabs.Screen name="moja-liga" options={{ href: null }} />
+      <Tabs.Screen name="takmicenje" options={{ href: null }} />
+      <Tabs.Screen name="klub/[id]" options={{ href: null }} />
+      <Tabs.Screen name="korisnik/[id]" options={{ href: null }} />
     </Tabs>
   );
 }
