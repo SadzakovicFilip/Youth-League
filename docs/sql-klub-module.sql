@@ -5097,3 +5097,1055 @@ notify pgrst, 'reload schema';
 -- =============================================================================
 -- END FAZA F25
 -- =============================================================================
+
+
+-- =============================================================================
+-- FAZA F26: 3 sitne dogradnje
+--   1) cond_rosters: minimum 5 / maksimum 12 igraca po timu (umesto fiksno 12)
+--   2) jersey_number u igracevoj statistici po-utakmica
+--   3) Prigovor (match_objections) — trener moze 30 min nakon kraja utakmice
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- F26.1) cond_rosters: 5 <= cnt <= 12
+-- -----------------------------------------------------------------------------
+create or replace function public.get_match_conditions(p_match_id bigint)
+returns jsonb language sql stable security definer set search_path = public as $$
+  with m as (
+    select * from public.matches where id = p_match_id
+  ),
+  home_roster as (
+    select count(*)::int as cnt from public.match_rosters mr, m
+    where mr.match_id = m.id and mr.club_id = m.home_club_id
+  ),
+  away_roster as (
+    select count(*)::int as cnt from public.match_rosters mr, m
+    where mr.match_id = m.id and mr.club_id = m.away_club_id
+  ),
+  sudije as (
+    select count(*)::int as cnt from public.match_officials mo, m
+    where mo.match_id = m.id and mo.role = 'sudija'::official_role
+  ),
+  zapisnicar as (
+    select count(*)::int as cnt from public.match_officials mo, m
+    where mo.match_id = m.id and mo.role = 'zapisnicar'::official_role
+  )
+  select jsonb_build_object(
+    'match_id',          (select id from m),
+    'status',            coalesce((select status from m), 'scheduled'),
+    'started_at',        (select started_at from m),
+    'ended_at',          (select ended_at from m),
+    'scheduled_at',      (select scheduled_at from m),
+    'home_roster_count', (select cnt from home_roster),
+    'away_roster_count', (select cnt from away_roster),
+    'sudije_count',      (select cnt from sudije),
+    'zapisnicar_count',  (select cnt from zapisnicar),
+    'min_roster',        5,
+    'max_roster',        12,
+    'cond_rosters',      (
+      (select cnt from home_roster) between 5 and 12
+      and (select cnt from away_roster) between 5 and 12
+    ),
+    'cond_sudije',       ((select cnt from sudije) = 2),
+    'cond_zapisnicar',   ((select cnt from zapisnicar) = 1),
+    'cond_time',         ((select scheduled_at from m) <= now())
+  );
+$$;
+grant execute on function public.get_match_conditions(bigint) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- F26.2) jersey_number u played listama (get_user_match_stats + get_igrac_match_hub)
+--        Potpisi i sve ostale kljuceve OSTAJU ISTI; samo se DODAJE jersey_number.
+-- -----------------------------------------------------------------------------
+
+-- get_user_match_stats — generalni view (admin/savez gleda igraca)
+create or replace function public.get_user_match_stats(p_user_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_club_id     bigint;
+  v_league_id   bigint;
+  v_league_name text;
+  v_upcoming    jsonb;
+  v_played      jsonb;
+  v_s_ft int; v_s_2 int; v_s_3 int; v_s_f int; v_season_pts int; v_season_games int;
+  v_c_ft int; v_c_2 int; v_c_3 int; v_c_f int; v_c_pts int; v_c_games int;
+  v_pct1 numeric; v_pct2 numeric; v_pct3 numeric;
+  v_cpct1 numeric; v_cpct2 numeric; v_cpct3 numeric;
+begin
+  if not public.can_view_user_stats(p_user_id) then
+    return jsonb_build_object('authorized', false);
+  end if;
+
+  select cm.club_id into v_club_id
+  from public.club_memberships cm
+  where cm.user_id = p_user_id
+    and cm.active = true
+    and cm.member_role::text = 'igrac'
+  order by cm.club_id
+  limit 1;
+
+  if v_club_id is null then
+    return jsonb_build_object(
+      'authorized', true,
+      'club_id', null, 'league_id', null, 'league_name', null,
+      'upcoming', '[]'::jsonb, 'played', '[]'::jsonb,
+      'season', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      ),
+      'career', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      )
+    );
+  end if;
+
+  select c.league_id, l.name into v_league_id, v_league_name
+  from public.clubs c
+  left join public.leagues l on l.id = c.league_id
+  where c.id = v_club_id;
+
+  select coalesce(jsonb_agg(to_jsonb(t) order by t.scheduled_at asc), '[]'::jsonb)
+  into v_upcoming
+  from (
+    select
+      m.id, m.scheduled_at, m.venue,
+      coalesce(m.status, 'scheduled') as status,
+      m.home_club_id, m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score, m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    where (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and coalesce(m.status, 'scheduled') in ('scheduled', 'live')
+    order by m.scheduled_at asc
+    limit 80
+  ) t;
+
+  select coalesce(jsonb_agg(to_jsonb(p) order by p.scheduled_at desc), '[]'::jsonb)
+  into v_played
+  from (
+    select
+      m.id as match_id,
+      m.scheduled_at,
+      m.home_club_id,
+      m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score,
+      m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side,
+      (select mr.jersey_number
+         from public.match_rosters mr
+         where mr.match_id = m.id
+           and mr.club_id  = v_club_id
+           and mr.user_id  = p_user_id
+         limit 1) as jersey_number,
+      (select count(*)::int from public.match_events e
+        where e.match_id = m.id and e.user_id = p_user_id and e.event_type = 'free_throw') as pts_ft,
+      (select count(*)::int from public.match_events e
+        where e.match_id = m.id and e.user_id = p_user_id and e.event_type = 'field') as pts_2,
+      (select count(*)::int from public.match_events e
+        where e.match_id = m.id and e.user_id = p_user_id and e.event_type = 'three') as pts_3,
+      (select count(*)::int from public.match_events e
+        where e.match_id = m.id and e.user_id = p_user_id and e.event_type = 'foul') as fouls,
+      (select coalesce(sum(e.points), 0)::int from public.match_events e
+        where e.match_id = m.id and e.user_id = p_user_id) as total_points,
+      case
+        when m.home_club_id = v_club_id then
+          case
+            when coalesce(m.home_score, 0) > coalesce(m.away_score, 0) then 'W'
+            when coalesce(m.home_score, 0) < coalesce(m.away_score, 0) then 'L'
+            else 'N'
+          end
+        else
+          case
+            when coalesce(m.away_score, 0) > coalesce(m.home_score, 0) then 'W'
+            when coalesce(m.away_score, 0) < coalesce(m.home_score, 0) then 'L'
+            else 'N'
+          end
+      end as result
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    where (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and m.status = 'finished'
+      and exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = p_user_id
+      )
+    order by m.scheduled_at desc
+    limit 80
+  ) p;
+
+  select count(distinct m.id)::int into v_season_games
+  from public.matches m
+  where m.league_id is not distinct from v_league_id
+    and m.status = 'finished'
+    and exists (
+      select 1 from public.match_rosters mr
+      where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = p_user_id
+    );
+
+  select
+    coalesce(sum(case when e.event_type = 'free_throw' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'field' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'three' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'foul' then 1 else 0 end), 0)::int,
+    coalesce(sum(e.points), 0)::int
+  into v_s_ft, v_s_2, v_s_3, v_s_f, v_season_pts
+  from public.match_events e
+  join public.matches m on m.id = e.match_id
+  where e.user_id = p_user_id
+    and m.league_id is not distinct from v_league_id
+    and m.status = 'finished'
+    and exists (
+      select 1 from public.match_rosters mr
+      where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = p_user_id
+    );
+
+  select count(distinct m.id)::int into v_c_games
+  from public.matches m
+  where m.status = 'finished'
+    and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+    and exists (
+      select 1 from public.match_rosters mr
+      where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = p_user_id
+    );
+
+  select
+    coalesce(sum(case when e.event_type = 'free_throw' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'field' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'three' then 1 else 0 end), 0)::int,
+    coalesce(sum(case when e.event_type = 'foul' then 1 else 0 end), 0)::int,
+    coalesce(sum(e.points), 0)::int
+  into v_c_ft, v_c_2, v_c_3, v_c_f, v_c_pts
+  from public.match_events e
+  join public.matches m on m.id = e.match_id
+  where e.user_id = p_user_id
+    and m.status = 'finished'
+    and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+    and exists (
+      select 1 from public.match_rosters mr
+      where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = p_user_id
+    );
+
+  v_pct1 := case when coalesce(v_season_pts, 0) > 0 then round(100.0 * v_s_ft::numeric / v_season_pts, 1) else 0 end;
+  v_pct2 := case when coalesce(v_season_pts, 0) > 0 then round(100.0 * (v_s_2 * 2)::numeric / v_season_pts, 1) else 0 end;
+  v_pct3 := case when coalesce(v_season_pts, 0) > 0 then round(100.0 * (v_s_3 * 3)::numeric / v_season_pts, 1) else 0 end;
+  v_cpct1 := case when coalesce(v_c_pts, 0) > 0 then round(100.0 * v_c_ft::numeric / v_c_pts, 1) else 0 end;
+  v_cpct2 := case when coalesce(v_c_pts, 0) > 0 then round(100.0 * (v_c_2 * 2)::numeric / v_c_pts, 1) else 0 end;
+  v_cpct3 := case when coalesce(v_c_pts, 0) > 0 then round(100.0 * (v_c_3 * 3)::numeric / v_c_pts, 1) else 0 end;
+
+  return jsonb_build_object(
+    'authorized', true,
+    'club_id', v_club_id,
+    'league_id', v_league_id,
+    'league_name', v_league_name,
+    'upcoming', coalesce(v_upcoming, '[]'::jsonb),
+    'played', coalesce(v_played, '[]'::jsonb),
+    'season', jsonb_build_object(
+      'games_played', v_season_games,
+      'total_points', v_season_pts,
+      'avg_points', case when v_season_games > 0 then round(v_season_pts::numeric / v_season_games, 1) else 0 end,
+      'pts_ft', v_s_ft, 'pts_2', v_s_2, 'pts_3', v_s_3, 'fouls', v_s_f,
+      'pct_points_ft', v_pct1, 'pct_points_2', v_pct2, 'pct_points_3', v_pct3
+    ),
+    'career', jsonb_build_object(
+      'games_played', v_c_games,
+      'total_points', v_c_pts,
+      'avg_points', case when v_c_games > 0 then round(v_c_pts::numeric / v_c_games, 1) else 0 end,
+      'pts_ft', v_c_ft, 'pts_2', v_c_2, 'pts_3', v_c_3, 'fouls', v_c_f,
+      'pct_points_ft', v_cpct1, 'pct_points_2', v_cpct2, 'pct_points_3', v_cpct3
+    )
+  );
+end;
+$$;
+grant execute on function public.get_user_match_stats(uuid) to authenticated;
+
+-- get_igrac_match_hub — igracev dashboard
+create or replace function public.get_igrac_match_hub()
+returns jsonb
+language plpgsql
+stable
+security definer
+parallel safe
+set search_path = public
+as $$
+declare
+  v_uid         uuid := auth.uid();
+  v_club_id     bigint;
+  v_league_id   bigint;
+  v_league_name text;
+  v_upcoming    jsonb;
+  v_played      jsonb;
+  v_season      jsonb;
+  v_career      jsonb;
+begin
+  select cm.club_id into v_club_id
+  from public.club_memberships cm
+  where cm.user_id = v_uid
+    and cm.active = true
+    and cm.member_role::text = 'igrac'
+  order by cm.club_id
+  limit 1;
+
+  if v_club_id is null then
+    return jsonb_build_object(
+      'club_id', null, 'league_id', null, 'league_name', null,
+      'upcoming', '[]'::jsonb, 'played', '[]'::jsonb,
+      'season', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      ),
+      'career', jsonb_build_object(
+        'games_played', 0, 'total_points', 0, 'avg_points', 0,
+        'pts_ft', 0, 'pts_2', 0, 'pts_3', 0, 'fouls', 0,
+        'pct_points_ft', 0, 'pct_points_2', 0, 'pct_points_3', 0
+      )
+    );
+  end if;
+
+  select c.league_id, l.name into v_league_id, v_league_name
+  from public.clubs c
+  left join public.leagues l on l.id = c.league_id
+  where c.id = v_club_id;
+
+  select coalesce(jsonb_agg(to_jsonb(t) order by t.scheduled_at asc), '[]'::jsonb)
+  into v_upcoming
+  from (
+    select
+      m.id, m.scheduled_at, m.venue,
+      coalesce(m.status, 'scheduled') as status,
+      m.home_club_id, m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score, m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    where (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and coalesce(m.status, 'scheduled') in ('scheduled', 'live')
+    order by m.scheduled_at asc
+    limit 80
+  ) t;
+
+  select coalesce(jsonb_agg(to_jsonb(x) order by x.scheduled_at desc), '[]'::jsonb)
+  into v_played
+  from (
+    select
+      m.id as match_id,
+      m.scheduled_at,
+      m.home_club_id,
+      m.away_club_id,
+      hc.name as home_club_name,
+      ac.name as away_club_name,
+      m.home_score,
+      m.away_score,
+      case when m.home_club_id = v_club_id then 'home' else 'away' end as side,
+      jr.jersey_number,
+      coalesce(st.pts_ft, 0)       as pts_ft,
+      coalesce(st.pts_2, 0)        as pts_2,
+      coalesce(st.pts_3, 0)        as pts_3,
+      coalesce(st.fouls, 0)        as fouls,
+      coalesce(st.total_points, 0) as total_points,
+      case
+        when m.home_club_id = v_club_id then
+          case
+            when coalesce(m.home_score, 0) > coalesce(m.away_score, 0) then 'W'
+            when coalesce(m.home_score, 0) < coalesce(m.away_score, 0) then 'L'
+            else 'N'
+          end
+        else
+          case
+            when coalesce(m.away_score, 0) > coalesce(m.home_score, 0) then 'W'
+            when coalesce(m.away_score, 0) < coalesce(m.home_score, 0) then 'L'
+            else 'N'
+          end
+      end as result
+    from public.matches m
+    left join public.clubs hc on hc.id = m.home_club_id
+    left join public.clubs ac on ac.id = m.away_club_id
+    left join lateral (
+      select mr.jersey_number
+      from public.match_rosters mr
+      where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = v_uid
+      limit 1
+    ) jr on true
+    left join lateral (
+      select
+        sum(case when e.event_type = 'free_throw' then 1 else 0 end)::int as pts_ft,
+        sum(case when e.event_type = 'field'      then 1 else 0 end)::int as pts_2,
+        sum(case when e.event_type = 'three'      then 1 else 0 end)::int as pts_3,
+        sum(case when e.event_type = 'foul'       then 1 else 0 end)::int as fouls,
+        coalesce(sum(e.points), 0)::int                                   as total_points
+      from public.match_events e
+      where e.match_id = m.id and e.user_id = v_uid
+    ) st on true
+    where m.status = 'finished'
+      and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = m.id and mr.club_id = v_club_id and mr.user_id = v_uid
+      )
+    order by m.scheduled_at desc
+    limit 80
+  ) x;
+
+  with my_matches as (
+    select m.id, m.league_id
+    from public.matches m
+    where m.status = 'finished'
+      and (m.home_club_id = v_club_id or m.away_club_id = v_club_id)
+      and exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = m.id
+          and mr.club_id = v_club_id
+          and mr.user_id = v_uid
+      )
+  ),
+  per_match as (
+    select
+      mm.id        as match_id,
+      mm.league_id as league_id,
+      coalesce(sum(case when e.event_type = 'free_throw' then 1 else 0 end), 0)::int as pts_ft,
+      coalesce(sum(case when e.event_type = 'field'      then 1 else 0 end), 0)::int as pts_2,
+      coalesce(sum(case when e.event_type = 'three'      then 1 else 0 end), 0)::int as pts_3,
+      coalesce(sum(case when e.event_type = 'foul'       then 1 else 0 end), 0)::int as fouls,
+      coalesce(sum(e.points), 0)::int                                                as total_points
+    from my_matches mm
+    left join public.match_events e
+      on e.match_id = mm.id and e.user_id = v_uid
+    group by mm.id, mm.league_id
+  ),
+  agg as (
+    select
+      count(*)::int                                                                              as c_games,
+      coalesce(sum(total_points), 0)::int                                                        as c_pts,
+      coalesce(sum(pts_ft), 0)::int                                                              as c_ft,
+      coalesce(sum(pts_2), 0)::int                                                               as c_2,
+      coalesce(sum(pts_3), 0)::int                                                               as c_3,
+      coalesce(sum(fouls), 0)::int                                                               as c_f,
+      count(*) filter (where league_id is not distinct from v_league_id)::int                    as s_games,
+      coalesce(sum(total_points) filter (where league_id is not distinct from v_league_id), 0)::int as s_pts,
+      coalesce(sum(pts_ft)       filter (where league_id is not distinct from v_league_id), 0)::int as s_ft,
+      coalesce(sum(pts_2)        filter (where league_id is not distinct from v_league_id), 0)::int as s_2,
+      coalesce(sum(pts_3)        filter (where league_id is not distinct from v_league_id), 0)::int as s_3,
+      coalesce(sum(fouls)        filter (where league_id is not distinct from v_league_id), 0)::int as s_f
+    from per_match
+  )
+  select
+    jsonb_build_object(
+      'games_played', s_games,
+      'total_points', s_pts,
+      'avg_points',   case when s_games > 0 then round(s_pts::numeric / s_games, 1) else 0 end,
+      'pts_ft', s_ft, 'pts_2', s_2, 'pts_3', s_3, 'fouls', s_f,
+      'pct_points_ft', case when s_pts > 0 then round(100.0 * s_ft::numeric / s_pts, 1) else 0 end,
+      'pct_points_2',  case when s_pts > 0 then round(100.0 * (s_2 * 2)::numeric / s_pts, 1) else 0 end,
+      'pct_points_3',  case when s_pts > 0 then round(100.0 * (s_3 * 3)::numeric / s_pts, 1) else 0 end
+    ),
+    jsonb_build_object(
+      'games_played', c_games,
+      'total_points', c_pts,
+      'avg_points',   case when c_games > 0 then round(c_pts::numeric / c_games, 1) else 0 end,
+      'pts_ft', c_ft, 'pts_2', c_2, 'pts_3', c_3, 'fouls', c_f,
+      'pct_points_ft', case when c_pts > 0 then round(100.0 * c_ft::numeric / c_pts, 1) else 0 end,
+      'pct_points_2',  case when c_pts > 0 then round(100.0 * (c_2 * 2)::numeric / c_pts, 1) else 0 end,
+      'pct_points_3',  case when c_pts > 0 then round(100.0 * (c_3 * 3)::numeric / c_pts, 1) else 0 end
+    )
+  into v_season, v_career
+  from agg;
+
+  return jsonb_build_object(
+    'club_id', v_club_id,
+    'league_id', v_league_id,
+    'league_name', v_league_name,
+    'upcoming', coalesce(v_upcoming, '[]'::jsonb),
+    'played',   coalesce(v_played,   '[]'::jsonb),
+    'season',   coalesce(v_season,   jsonb_build_object()),
+    'career',   coalesce(v_career,   jsonb_build_object())
+  );
+end;
+$$;
+grant execute on function public.get_igrac_match_hub() to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- F26.3) Prigovor (match_objections) — trener moze 30 min nakon kraja utakmice
+-- -----------------------------------------------------------------------------
+
+-- Tabela
+create table if not exists public.match_objections (
+  id          bigserial primary key,
+  match_id    bigint not null references public.matches(id) on delete cascade,
+  club_id     bigint not null references public.clubs(id)   on delete cascade,
+  created_by  uuid   not null references public.profiles(id),
+  reason      text   not null,
+  created_at  timestamptz not null default now(),
+  unique (match_id, club_id)
+);
+
+create index if not exists idx_match_objections_match on public.match_objections (match_id);
+create index if not exists idx_match_objections_club  on public.match_objections (club_id);
+
+alter table public.match_objections enable row level security;
+
+drop policy if exists match_objections_select on public.match_objections;
+create policy match_objections_select on public.match_objections
+  for select to authenticated
+  using (
+    public.has_role('admin')
+    or public.has_role('savez')
+    or exists (
+      select 1 from public.matches m
+      where m.id = match_objections.match_id
+        and public.is_delegate_of_league(m.league_id)
+    )
+    or exists (
+      select 1 from public.club_memberships cm
+      where cm.user_id = auth.uid()
+        and cm.active  = true
+        and cm.club_id = match_objections.club_id
+    )
+  );
+-- Pisanje iskljucivo kroz SECURITY DEFINER RPC submit_match_objection.
+
+-- RPC: podnosenje prigovora (samo trener jednog od dva kluba; samo unutar 30min od kraja)
+create or replace function public.submit_match_objection(
+  p_match_id bigint,
+  p_reason   text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid       uuid := auth.uid();
+  v_club_id   bigint;
+  v_m         record;
+  v_deadline  timestamptz;
+  v_existing  bigint;
+  v_id        bigint;
+  v_now       timestamptz := now();
+  v_reason    text;
+begin
+  if v_uid is null then
+    raise exception 'Niste prijavljeni';
+  end if;
+
+  v_reason := btrim(coalesce(p_reason, ''));
+  if length(v_reason) < 3 then
+    raise exception 'Obrazlozenje prigovora je prekratko (min 3 karaktera)';
+  end if;
+  if length(v_reason) > 4000 then
+    raise exception 'Obrazlozenje prigovora je predugacko (max 4000 karaktera)';
+  end if;
+
+  select m.id, m.home_club_id, m.away_club_id, m.status::text as status, m.ended_at, m.league_id
+    into v_m
+  from public.matches m
+  where m.id = p_match_id;
+
+  if not found then
+    raise exception 'Utakmica ne postoji';
+  end if;
+  if v_m.status <> 'finished' then
+    raise exception 'Prigovor moze da se podnese tek po zavrsetku utakmice';
+  end if;
+  if v_m.ended_at is null then
+    raise exception 'Utakmica nema zabelezen kraj';
+  end if;
+
+  v_deadline := v_m.ended_at + interval '30 minutes';
+  if v_now > v_deadline then
+    raise exception 'Rok od 30 minuta za podnosenje prigovora je istekao (% )', v_deadline;
+  end if;
+
+  -- Trener jednog od dva ucesnika utakmice
+  select cm.club_id into v_club_id
+  from public.club_memberships cm
+  where cm.user_id = v_uid
+    and cm.active  = true
+    and cm.member_role::text = 'trener'
+    and cm.club_id in (v_m.home_club_id, v_m.away_club_id)
+  limit 1;
+
+  if v_club_id is null then
+    raise exception 'Samo trener jednog od dva kluba ucesnika moze da podnese prigovor';
+  end if;
+
+  select id into v_existing
+  from public.match_objections
+  where match_id = p_match_id and club_id = v_club_id;
+
+  if v_existing is not null then
+    raise exception 'Prigovor za ovaj klub je vec podnet';
+  end if;
+
+  insert into public.match_objections (match_id, club_id, created_by, reason)
+  values (p_match_id, v_club_id, v_uid, v_reason)
+  returning id into v_id;
+
+  return jsonb_build_object(
+    'id',         v_id,
+    'club_id',    v_club_id,
+    'created_at', v_now,
+    'deadline',   v_deadline
+  );
+end;
+$$;
+grant execute on function public.submit_match_objection(bigint, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- F26.4) get_trener_match_detail — dodaj 'objection' blok (rok 30 min, can_submit, postojeci)
+--        Potpis OSTAJE ISTI; FE moze (ali ne mora odmah) da koristi novi kljuc.
+-- -----------------------------------------------------------------------------
+create or replace function public.get_trener_match_detail(p_match_id bigint, p_club_id bigint default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_club_id bigint := coalesce(p_club_id, public.my_trener_or_klub_club_id());
+  v_uid     uuid   := auth.uid();
+  v_match   record;
+  v_result  jsonb;
+  v_is_trener boolean;
+  v_existing  jsonb;
+  v_deadline  timestamptz;
+begin
+  select m.id, m.league_id, m.group_id, m.home_club_id, m.away_club_id,
+         m.scheduled_at, m.venue, m.status, m.home_score, m.away_score,
+         m.started_at, m.ended_at,
+         hc.name as home_club_name, ac.name as away_club_name
+    into v_match
+  from public.matches m
+  left join public.clubs hc on hc.id = m.home_club_id
+  left join public.clubs ac on ac.id = m.away_club_id
+  where m.id = p_match_id;
+
+  if not found then raise exception 'Utakmica ne postoji'; end if;
+
+  if not (v_match.home_club_id = v_club_id or v_match.away_club_id = v_club_id) then
+    raise exception 'Klub nije ucesnik ove utakmice';
+  end if;
+
+  v_is_trener := exists (
+    select 1 from public.club_memberships cm
+    where cm.user_id = v_uid
+      and cm.active  = true
+      and cm.member_role::text = 'trener'
+      and cm.club_id = v_club_id
+  );
+
+  v_deadline := case when v_match.ended_at is not null
+                     then v_match.ended_at + interval '30 minutes'
+                     else null end;
+
+  select jsonb_build_object('id', mo.id, 'reason', mo.reason, 'created_at', mo.created_at)
+    into v_existing
+  from public.match_objections mo
+  where mo.match_id = p_match_id and mo.club_id = v_club_id;
+
+  select jsonb_build_object(
+    'match', jsonb_build_object(
+      'id', v_match.id,
+      'league_id', v_match.league_id,
+      'group_id', v_match.group_id,
+      'home_club_id', v_match.home_club_id,
+      'away_club_id', v_match.away_club_id,
+      'scheduled_at', v_match.scheduled_at,
+      'venue', v_match.venue,
+      'status', v_match.status,
+      'started_at', v_match.started_at,
+      'ended_at', v_match.ended_at,
+      'home_score', v_match.home_score,
+      'away_score', v_match.away_score,
+      'home_club_name', v_match.home_club_name,
+      'away_club_name', v_match.away_club_name,
+      'side', case when v_match.home_club_id = v_club_id then 'home' else 'away' end
+    ),
+    'club_id', v_club_id,
+    'can_edit', public.can_manage_match_roster(p_match_id, v_club_id)
+                and not (v_match.home_score is not null and v_match.away_score is not null),
+    'roster', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', mr.user_id,
+        'jersey_number', mr.jersey_number,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username
+      ) order by mr.jersey_number)
+      from public.match_rosters mr
+      left join public.profiles p on p.id = mr.user_id
+      where mr.match_id = p_match_id and mr.club_id = v_club_id
+    ), '[]'::jsonb),
+    'players', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', p.id,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username,
+        'license_valid_until', ul.valid_until,
+        'license_number', ul.license_number,
+        'is_eligible', (ul.valid_until is not null and ul.valid_until >= (v_match.scheduled_at::date))
+      ) order by coalesce(p.last_name, p.display_name, p.username))
+      from public.club_memberships cm
+      join public.profiles p on p.id = cm.user_id
+      left join public.user_licenses ul on ul.user_id = p.id
+      where cm.club_id = v_club_id
+        and cm.member_role::text = 'igrac'
+        and cm.active = true
+    ), '[]'::jsonb),
+    'objection', jsonb_build_object(
+      'is_trener',     v_is_trener,
+      'match_finished',(v_match.status::text = 'finished' and v_match.ended_at is not null),
+      'deadline',      v_deadline,
+      'now',           now(),
+      'within_window', (v_deadline is not null and now() <= v_deadline),
+      'can_submit',    (
+        v_is_trener
+        and v_match.status::text = 'finished'
+        and v_match.ended_at is not null
+        and now() <= v_deadline
+        and v_existing is null
+      ),
+      'existing',      v_existing
+    )
+  )
+  into v_result;
+
+  return v_result;
+end;
+$$;
+grant execute on function public.get_trener_match_detail(bigint, bigint) to authenticated;
+
+analyze public.match_objections;
+notify pgrst, 'reload schema';
+-- =============================================================================
+-- END FAZA F26
+-- =============================================================================
+
+-- =============================================================================
+-- FAZA F27: Prigovor — delegat vidi, usvaja ili odbija; trener vidi odluku
+-- =============================================================================
+
+-- Kolone odluke (idempotentno za postojece baze)
+alter table public.match_objections
+  add column if not exists resolution_status text not null default 'pending'
+    check (resolution_status in ('pending', 'accepted', 'rejected'));
+alter table public.match_objections
+  add column if not exists resolved_at timestamptz;
+alter table public.match_objections
+  add column if not exists resolved_by uuid references public.profiles(id);
+
+-- RPC: delegat (ili admin/savez) odlucuje o prigovoru
+create or replace function public.resolve_match_objection(
+  p_objection_id bigint,
+  p_resolution   text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_o      record;
+  v_res    text;
+begin
+  if v_uid is null then
+    raise exception 'Niste prijavljeni';
+  end if;
+
+  v_res := lower(btrim(coalesce(p_resolution, '')));
+  if v_res not in ('accepted', 'rejected') then
+    raise exception 'Neispravna odluka (ocekivano: accepted ili rejected)';
+  end if;
+
+  select mo.id, mo.match_id, mo.club_id, mo.resolution_status, m.league_id
+    into v_o
+  from public.match_objections mo
+  join public.matches m on m.id = mo.match_id
+  where mo.id = p_objection_id;
+
+  if not found then
+    raise exception 'Prigovor ne postoji';
+  end if;
+  if v_o.resolution_status <> 'pending' then
+    raise exception 'Prigovor je vec obradjen';
+  end if;
+
+  if not (
+    public.has_role('admin')
+    or public.has_role('savez')
+    or public.is_delegate_of_league(v_o.league_id)
+  ) then
+    raise exception 'Samo delegat lige (ili admin/savez) moze da odluci o prigovoru';
+  end if;
+
+  update public.match_objections
+  set resolution_status = v_res,
+      resolved_at       = now(),
+      resolved_by       = v_uid
+  where id = p_objection_id;
+
+  return jsonb_build_object(
+    'id',              p_objection_id,
+    'resolution_status', v_res,
+    'resolved_at',     now(),
+    'resolved_by',     v_uid
+  );
+end;
+$$;
+grant execute on function public.resolve_match_objection(bigint, text) to authenticated;
+
+-- get_delegat_match_detail — lista prigovora za utakmicu
+create or replace function public.get_delegat_match_detail(p_match_id bigint)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_m record;
+  v_result jsonb;
+begin
+  select m.* into v_m from public.matches m where m.id = p_match_id;
+  if not found then raise exception 'Utakmica ne postoji'; end if;
+
+  if not (public.has_role('admin') or public.has_role('savez') or public.is_delegate_of_league(v_m.league_id)) then
+    raise exception 'Nemate dozvolu da vidite ovu utakmicu';
+  end if;
+
+  select jsonb_build_object(
+    'match', jsonb_build_object(
+      'id', v_m.id,
+      'league_id', v_m.league_id,
+      'scheduled_at', v_m.scheduled_at,
+      'venue', v_m.venue,
+      'status', coalesce(v_m.status, 'scheduled'),
+      'started_at', v_m.started_at,
+      'ended_at', v_m.ended_at,
+      'home_club_id', v_m.home_club_id,
+      'away_club_id', v_m.away_club_id,
+      'home_club_name', (select name from public.clubs where id = v_m.home_club_id),
+      'away_club_name', (select name from public.clubs where id = v_m.away_club_id),
+      'home_score', v_m.home_score,
+      'away_score', v_m.away_score
+    ),
+    'conditions', public.get_match_conditions(p_match_id),
+    'sudije', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', mo.user_id,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username
+      ))
+      from public.match_officials mo
+      left join public.profiles p on p.id = mo.user_id
+      where mo.match_id = p_match_id and mo.role = 'sudija'::official_role
+    ), '[]'::jsonb),
+    'zapisnicar', (
+      select jsonb_build_object(
+        'user_id', mo.user_id,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username
+      )
+      from public.match_officials mo
+      left join public.profiles p on p.id = mo.user_id
+      where mo.match_id = p_match_id and mo.role = 'zapisnicar'::official_role
+      limit 1
+    ),
+    'objections', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', mo.id,
+          'club_id', mo.club_id,
+          'club_name', cb.name,
+          'reason', mo.reason,
+          'created_at', mo.created_at,
+          'created_by', mo.created_by,
+          'submitter_display',
+            coalesce(
+              pr.display_name,
+              nullif(trim(coalesce(pr.first_name, '') || ' ' || coalesce(pr.last_name, '')), ''),
+              pr.username,
+              'Korisnik'
+            ),
+          'status', mo.resolution_status,
+          'resolved_at', mo.resolved_at,
+          'resolved_by', mo.resolved_by,
+          'resolver_display',
+            case when mo.resolved_by is null then null
+            else coalesce(
+              rp.display_name,
+              nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), ''),
+              rp.username,
+              'Korisnik'
+            ) end
+        )
+        order by mo.created_at asc
+      )
+      from public.match_objections mo
+      join public.clubs cb on cb.id = mo.club_id
+      left join public.profiles pr on pr.id = mo.created_by
+      left join public.profiles rp on rp.id = mo.resolved_by
+      where mo.match_id = p_match_id
+    ), '[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+grant execute on function public.get_delegat_match_detail(bigint) to authenticated;
+
+-- get_trener_match_detail — u 'existing' dodaj status odluke
+create or replace function public.get_trener_match_detail(p_match_id bigint, p_club_id bigint default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_club_id bigint := coalesce(p_club_id, public.my_trener_or_klub_club_id());
+  v_uid     uuid   := auth.uid();
+  v_match   record;
+  v_result  jsonb;
+  v_is_trener boolean;
+  v_existing  jsonb;
+  v_deadline  timestamptz;
+begin
+  select m.id, m.league_id, m.group_id, m.home_club_id, m.away_club_id,
+         m.scheduled_at, m.venue, m.status, m.home_score, m.away_score,
+         m.started_at, m.ended_at,
+         hc.name as home_club_name, ac.name as away_club_name
+    into v_match
+  from public.matches m
+  left join public.clubs hc on hc.id = m.home_club_id
+  left join public.clubs ac on ac.id = m.away_club_id
+  where m.id = p_match_id;
+
+  if not found then raise exception 'Utakmica ne postoji'; end if;
+
+  if not (v_match.home_club_id = v_club_id or v_match.away_club_id = v_club_id) then
+    raise exception 'Klub nije ucesnik ove utakmice';
+  end if;
+
+  v_is_trener := exists (
+    select 1 from public.club_memberships cm
+    where cm.user_id = v_uid
+      and cm.active  = true
+      and cm.member_role::text = 'trener'
+      and cm.club_id = v_club_id
+  );
+
+  v_deadline := case when v_match.ended_at is not null
+                     then v_match.ended_at + interval '30 minutes'
+                     else null end;
+
+  select jsonb_build_object(
+    'id', mo.id,
+    'reason', mo.reason,
+    'created_at', mo.created_at,
+    'status', mo.resolution_status,
+    'resolved_at', mo.resolved_at,
+    'resolved_by', mo.resolved_by,
+    'resolver_display',
+      case when mo.resolved_by is null then null
+      else coalesce(
+        rp.display_name,
+        nullif(trim(coalesce(rp.first_name, '') || ' ' || coalesce(rp.last_name, '')), ''),
+        rp.username,
+        'Korisnik'
+      ) end
+  )
+    into v_existing
+  from public.match_objections mo
+  left join public.profiles rp on rp.id = mo.resolved_by
+  where mo.match_id = p_match_id and mo.club_id = v_club_id;
+
+  select jsonb_build_object(
+    'match', jsonb_build_object(
+      'id', v_match.id,
+      'league_id', v_match.league_id,
+      'group_id', v_match.group_id,
+      'home_club_id', v_match.home_club_id,
+      'away_club_id', v_match.away_club_id,
+      'scheduled_at', v_match.scheduled_at,
+      'venue', v_match.venue,
+      'status', v_match.status,
+      'started_at', v_match.started_at,
+      'ended_at', v_match.ended_at,
+      'home_score', v_match.home_score,
+      'away_score', v_match.away_score,
+      'home_club_name', v_match.home_club_name,
+      'away_club_name', v_match.away_club_name,
+      'side', case when v_match.home_club_id = v_club_id then 'home' else 'away' end
+    ),
+    'club_id', v_club_id,
+    'can_edit', public.can_manage_match_roster(p_match_id, v_club_id)
+                and not (v_match.home_score is not null and v_match.away_score is not null),
+    'roster', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', mr.user_id,
+        'jersey_number', mr.jersey_number,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username
+      ) order by mr.jersey_number)
+      from public.match_rosters mr
+      left join public.profiles p on p.id = mr.user_id
+      where mr.match_id = p_match_id and mr.club_id = v_club_id
+    ), '[]'::jsonb),
+    'players', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', p.id,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username,
+        'license_valid_until', ul.valid_until,
+        'license_number', ul.license_number,
+        'is_eligible', (ul.valid_until is not null and ul.valid_until >= (v_match.scheduled_at::date))
+      ) order by coalesce(p.last_name, p.display_name, p.username))
+      from public.club_memberships cm
+      join public.profiles p on p.id = cm.user_id
+      left join public.user_licenses ul on ul.user_id = p.id
+      where cm.club_id = v_club_id
+        and cm.member_role::text = 'igrac'
+        and cm.active = true
+    ), '[]'::jsonb),
+    'objection', jsonb_build_object(
+      'is_trener',     v_is_trener,
+      'match_finished',(v_match.status::text = 'finished' and v_match.ended_at is not null),
+      'deadline',      v_deadline,
+      'now',           now(),
+      'within_window', (v_deadline is not null and now() <= v_deadline),
+      'can_submit',    (
+        v_is_trener
+        and v_match.status::text = 'finished'
+        and v_match.ended_at is not null
+        and now() <= v_deadline
+        and v_existing is null
+      ),
+      'existing',      v_existing
+    )
+  )
+  into v_result;
+
+  return v_result;
+end;
+$$;
+grant execute on function public.get_trener_match_detail(bigint, bigint) to authenticated;
+
+notify pgrst, 'reload schema';
+-- =============================================================================
+-- END FAZA F27
+-- =============================================================================

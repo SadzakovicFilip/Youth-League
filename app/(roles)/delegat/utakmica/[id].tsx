@@ -16,6 +16,8 @@ type Conditions = {
   away_roster_count: number;
   sudije_count: number;
   zapisnicar_count: number;
+  min_roster?: number;
+  max_roster?: number;
   cond_rosters: boolean;
   cond_sudije: boolean;
   cond_zapisnicar: boolean;
@@ -46,11 +48,26 @@ type MatchInfo = {
   away_score: number | null;
 };
 
+type MatchObjection = {
+  id: number;
+  club_id: number;
+  club_name: string | null;
+  reason: string;
+  created_at: string;
+  created_by: string;
+  submitter_display: string | null;
+  status: 'pending' | 'accepted' | 'rejected' | string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolver_display: string | null;
+};
+
 type Payload = {
   match: MatchInfo;
   conditions: Conditions;
   sudije: OfficialRef[];
   zapisnicar: OfficialRef | null;
+  objections?: MatchObjection[];
 };
 
 function officialLabel(o: OfficialRef | null | undefined) {
@@ -81,6 +98,7 @@ export default function DelegatMatchDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
+  const [objectionBusyId, setObjectionBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!Number.isFinite(matchId)) {
@@ -125,6 +143,21 @@ export default function DelegatMatchDetailScreen() {
     setErrorMessage('');
     const { error } = await supabase.rpc('end_match', { p_match_id: matchId });
     setBusy(false);
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    await load();
+  };
+
+  const resolveObjection = async (objectionId: number, resolution: 'accepted' | 'rejected') => {
+    setObjectionBusyId(objectionId);
+    setErrorMessage('');
+    const { error } = await supabase.rpc('resolve_match_objection', {
+      p_objection_id: objectionId,
+      p_resolution: resolution,
+    });
+    setObjectionBusyId(null);
     if (error) {
       setErrorMessage(error.message);
       return;
@@ -187,7 +220,7 @@ export default function DelegatMatchDetailScreen() {
 
           <ConditionRow
             ok={c!.cond_rosters}
-            label={`Sastavi oba tima (12+12) — ${c!.home_roster_count}/12 : ${c!.away_roster_count}/12`}
+            label={`Sastavi oba tima (${c!.min_roster ?? 5}-${c!.max_roster ?? 12} igraca) — ${c!.home_roster_count}/${c!.max_roster ?? 12} : ${c!.away_roster_count}/${c!.max_roster ?? 12}`}
           />
           <ConditionRow
             ok={c!.cond_sudije}
@@ -222,6 +255,63 @@ export default function DelegatMatchDetailScreen() {
               <ThemedText>Utakmica je zavrsena.</ThemedText>
             </ThemedView>
           ) : null}
+
+          <ThemedText type="subtitle">Prigovori na zapisnik</ThemedText>
+          {data.objections && data.objections.length > 0 ? (
+            data.objections.map((o) => (
+              <ThemedView key={o.id} style={styles.objectionCard}>
+                <ThemedText type="defaultSemiBold">{o.club_name ?? `Klub #${o.club_id}`}</ThemedText>
+                <ThemedText style={styles.muted}>
+                  Podneo: {o.submitter_display ?? '—'} · {formatDate(o.created_at)}
+                </ThemedText>
+                <ThemedText style={styles.objectionReason}>{o.reason}</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.objectionStatus,
+                    o.status === 'pending' && styles.statusPending,
+                    o.status === 'accepted' && styles.statusAccepted,
+                    o.status === 'rejected' && styles.statusRejected,
+                  ]}>
+                  Status:{' '}
+                  {o.status === 'pending'
+                    ? 'NA CEKANJU'
+                    : o.status === 'accepted'
+                      ? 'USVOJEN'
+                      : o.status === 'rejected'
+                        ? 'ODBIJEN'
+                        : String(o.status).toUpperCase()}
+                </ThemedText>
+                {o.resolved_at ? (
+                  <ThemedText style={styles.muted}>
+                    Odluka: {formatDate(o.resolved_at)}
+                    {o.resolver_display ? ` · ${o.resolver_display}` : ''}
+                  </ThemedText>
+                ) : null}
+                {o.status === 'pending' ? (
+                  objectionBusyId === o.id ? (
+                    <ActivityIndicator style={{ marginTop: 8 }} />
+                  ) : (
+                    <ThemedView style={styles.objectionBtnRow}>
+                      <Pressable
+                        style={[styles.acceptBtn, busy && styles.primaryBtnDisabled]}
+                        onPress={() => resolveObjection(o.id, 'accepted')}
+                        disabled={busy}>
+                        <ThemedText style={styles.primaryBtnText}>USVOJI</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.rejectObjBtn, busy && styles.primaryBtnDisabled]}
+                        onPress={() => resolveObjection(o.id, 'rejected')}
+                        disabled={busy}>
+                        <ThemedText style={styles.primaryBtnText}>ODBIJ</ThemedText>
+                      </Pressable>
+                    </ThemedView>
+                  )
+                ) : null}
+              </ThemedView>
+            ))
+          ) : (
+            <ThemedText style={styles.muted}>Nema podnetih prigovora za ovu utakmicu.</ThemedText>
+          )}
 
           {!isFinished && !isLive ? (
             <Pressable
@@ -305,6 +395,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#c53939',
     borderRadius: 8,
     minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  objectionCard: {
+    borderWidth: 1,
+    borderColor: '#c58939',
+    borderRadius: 8,
+    padding: 12,
+    gap: 6,
+    backgroundColor: '#fffaf2',
+  },
+  objectionReason: { marginTop: 4 },
+  objectionStatus: { fontWeight: '700', marginTop: 4 },
+  statusPending: { color: '#856404' },
+  statusAccepted: { color: '#1b6b2d' },
+  statusRejected: { color: '#8b1a1a' },
+  objectionBtnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  acceptBtn: {
+    flex: 1,
+    backgroundColor: '#2a9d4a',
+    borderRadius: 8,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectObjBtn: {
+    flex: 1,
+    backgroundColor: '#c53939',
+    borderRadius: 8,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

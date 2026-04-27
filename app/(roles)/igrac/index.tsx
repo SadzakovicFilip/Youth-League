@@ -89,6 +89,7 @@ type HubPlayed = {
   home_score: number | null;
   away_score: number | null;
   side: 'home' | 'away';
+  jersey_number: number | null;
   pts_ft: number;
   pts_2: number;
   pts_3: number;
@@ -420,6 +421,7 @@ export default function IgracHomeScreen() {
                         <ThemedText>
                           Rezultat: {m.home_score ?? '-'} : {m.away_score ?? '-'}
                         </ThemedText>
+                        <ThemedText>Dres: {m.jersey_number != null ? `#${m.jersey_number}` : '-'}</ThemedText>
                         <ThemedText>
                           Tvoji poeni: {m.total_points} (+1: {m.pts_ft}, +2: {m.pts_2}, +3: {m.pts_3})
                         </ThemedText>
