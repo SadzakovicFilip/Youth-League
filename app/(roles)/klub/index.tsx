@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { getMyClubContext } from '@/lib/club-context';
@@ -29,22 +30,11 @@ export default function KlubHomeScreen() {
     loadContext();
   }, []);
 
-  const onLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      Alert.alert('Logout greska', error.message);
-      return;
-    }
-    router.replace('/login');
-  };
-
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Klub Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
       <ThemedText type="subtitle">{clubName}</ThemedText>
       {contextInfo ? <ThemedText>{contextInfo}</ThemedText> : null}
@@ -60,6 +50,7 @@ export default function KlubHomeScreen() {
         <ActionCard label="Takmicenje (tabela i strelci)" onPress={() => router.push('/klub/takmicenje')} />
       </ThemedView>
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -84,14 +75,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
   grid: { gap: 8, marginTop: 6 },
   actionCard: {
     borderWidth: 1,

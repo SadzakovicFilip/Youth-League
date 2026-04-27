@@ -1,7 +1,9 @@
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
+import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { sanitizeUsername } from '@/lib/auth';
@@ -55,11 +57,6 @@ export default function AdminHomeScreen() {
     };
     loadAllowed();
   }, []);
-
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
 
   const onSubmit = async () => {
     if (!role || !username.trim() || !password.trim()) {
@@ -115,17 +112,17 @@ export default function AdminHomeScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Admin Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
       <ThemedText>Globalno upravljanje korisnicima, pravilima i sistemskim postavkama.</ThemedText>
       <Link href="/home" style={styles.link}>
         Otvori shared home
       </Link>
+
+      <ThemeProfileToggle />
 
       <ThemedText type="subtitle">Kreiraj korisnika</ThemedText>
 
@@ -168,6 +165,7 @@ export default function AdminHomeScreen() {
         </ThemedView>
       ) : null}
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -205,14 +203,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
   link: { textDecorationLine: 'underline', fontSize: 16 },
   fieldGroup: { gap: 6 },
   input: {

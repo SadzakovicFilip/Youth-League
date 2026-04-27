@@ -2,6 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
@@ -172,7 +173,8 @@ export default function DelegatMatchDetailScreen() {
   const isFinished = c?.status === 'finished';
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
@@ -339,6 +341,7 @@ export default function DelegatMatchDetailScreen() {
         </>
       ) : null}
     </ScrollView>
+    </ScreenShell>
   );
 }
 

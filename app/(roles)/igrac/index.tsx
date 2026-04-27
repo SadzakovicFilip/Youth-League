@@ -1,9 +1,10 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { router } from 'expo-router';
 
 import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
+import { ScreenShell } from '@/components/screen-shell';
+import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { UserDetailView } from '@/components/shared/user-detail-view';
@@ -136,11 +137,6 @@ export default function IgracHomeScreen() {
   const [matchHub, setMatchHub] = useState<MatchHubPayload | null>(null);
   const [activeTab, setActiveTab] = useState<PlayerTabKey>('attendance');
 
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
-
   const loadPlayerData = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
@@ -191,7 +187,8 @@ export default function IgracHomeScreen() {
   }, [loadPlayerData]);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedText type="title">Igrac Dashboard</ThemedText>
       <ThemedText style={styles.subtitle}>
         Read-only pregled: prisustvo, clanarina, statistika, taktike, profil, liga i utakmice.
@@ -200,9 +197,6 @@ export default function IgracHomeScreen() {
       <Link href="/home" style={styles.link}>
         Otvori shared home
       </Link>
-      <Pressable style={styles.secondaryButton} onPress={onLogout}>
-        <ThemedText style={styles.secondaryButtonText}>Logout</ThemedText>
-      </Pressable>
 
       <Pressable style={styles.refreshButton} onPress={loadPlayerData}>
         <ThemedText style={styles.refreshButtonText}>Refresh</ThemedText>
@@ -319,7 +313,12 @@ export default function IgracHomeScreen() {
 
       {activeTab === 'profile' ? (
         userId ? (
-          <UserDetailView userId={userId} showBackButton={false} />
+          <>
+            <Section title="Podesavanja">
+              <ThemeProfileToggle />
+            </Section>
+            <UserDetailView userId={userId} showBackButton={false} />
+          </>
         ) : (
           <Section title="Moj profil">
             <ThemedText>Nema aktivne sesije.</ThemedText>
@@ -464,6 +463,7 @@ export default function IgracHomeScreen() {
         </>
       ) : null}
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -535,17 +535,6 @@ const styles = StyleSheet.create({
     minHeight: 40,
   },
   refreshButtonText: {
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 40,
-  },
-  secondaryButtonText: {
     fontWeight: '600',
   },
   tabRow: {

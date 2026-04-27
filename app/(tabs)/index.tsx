@@ -74,18 +74,13 @@ export default function HomeScreen() {
     loadPermissions();
   }, []);
 
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
-
   const onOpenRoleDashboard = () => {
     const route = myRole ? getRoleHomeRoute(myRole) : null;
     if (!route) {
       setResult('Trenutna rola nema mapiran dashboard route.');
       return;
     }
-    router.push(route);
+    router.push(route as never);
   };
 
   const onCreateManagedUser = async () => {
@@ -194,9 +189,6 @@ export default function HomeScreen() {
           </Pressable>
         </>
       )}
-      <Pressable style={styles.secondaryButton} onPress={onLogout}>
-        <ThemedText style={styles.secondaryButtonText}>Logout</ThemedText>
-      </Pressable>
 
       {result ? (
         <ThemedView style={styles.resultBox}>

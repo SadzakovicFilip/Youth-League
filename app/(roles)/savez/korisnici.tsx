@@ -2,6 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { openLicensePdf } from '@/lib/license-viewer';
@@ -104,50 +105,52 @@ export default function SavezKorisniciScreen() {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Korisnici</ThemedText>
-      <ThemedText>Korisnici koje je kreirao trenutno ulogovani savez.</ThemedText>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ThemedText type="title">Korisnici</ThemedText>
+        <ThemedText>Korisnici koje je kreirao trenutno ulogovani savez.</ThemedText>
 
-      <Pressable style={styles.primaryButton} onPress={() => router.push('/savez/dodaj-korisnika')}>
-        <ThemedText style={styles.primaryButtonText}>+ Dodaj novog korisnika</ThemedText>
-      </Pressable>
+        <Pressable style={styles.primaryButton} onPress={() => router.push('/savez/dodaj-korisnika')}>
+          <ThemedText style={styles.primaryButtonText}>+ Dodaj novog korisnika</ThemedText>
+        </Pressable>
 
-      {loading ? <ActivityIndicator /> : null}
+        {loading ? <ActivityIndicator /> : null}
 
-      {errorMessage ? (
-        <ThemedView style={styles.card}>
-          <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-        </ThemedView>
-      ) : null}
-
-      {!loading && profiles.length === 0 ? (
-        <ThemedView style={styles.card}>
-          <ThemedText>Jos niko nije kreiran.</ThemedText>
-        </ThemedView>
-      ) : null}
-
-      {profiles.map((p) => {
-        const lic = licenses.get(p.id);
-        return (
-          <ThemedView key={p.id} style={styles.card}>
-            <ThemedText type="defaultSemiBold">
-              {p.display_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username}
-            </ThemedText>
-            <ThemedText>Username: {p.username}</ThemedText>
-            <ThemedText>Rola: {roles.get(p.id) ?? '-'}</ThemedText>
-            <ThemedText>Broj licence: {lic?.number ?? '-'}</ThemedText>
-            <ThemedText>Licenca vazi do: {lic?.validUntil ?? '-'}</ThemedText>
-            {lic?.filePath ? (
-              <Pressable style={styles.secondaryButton} onPress={() => openLicensePdf(lic.filePath)}>
-                <ThemedText style={styles.secondaryButtonText}>Otvori PDF</ThemedText>
-              </Pressable>
-            ) : (
-              <ThemedText style={styles.muted}>PDF licenca nije uploadovana.</ThemedText>
-            )}
+        {errorMessage ? (
+          <ThemedView style={styles.card}>
+            <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
           </ThemedView>
-        );
-      })}
-    </ScrollView>
+        ) : null}
+
+        {!loading && profiles.length === 0 ? (
+          <ThemedView style={styles.card}>
+            <ThemedText>Jos niko nije kreiran.</ThemedText>
+          </ThemedView>
+        ) : null}
+
+        {profiles.map((p) => {
+          const lic = licenses.get(p.id);
+          return (
+            <ThemedView key={p.id} style={styles.card}>
+              <ThemedText type="defaultSemiBold">
+                {p.display_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || p.username}
+              </ThemedText>
+              <ThemedText>Username: {p.username}</ThemedText>
+              <ThemedText>Rola: {roles.get(p.id) ?? '-'}</ThemedText>
+              <ThemedText>Broj licence: {lic?.number ?? '-'}</ThemedText>
+              <ThemedText>Licenca vazi do: {lic?.validUntil ?? '-'}</ThemedText>
+              {lic?.filePath ? (
+                <Pressable style={styles.secondaryButton} onPress={() => openLicensePdf(lic.filePath)}>
+                  <ThemedText style={styles.secondaryButtonText}>Otvori PDF</ThemedText>
+                </Pressable>
+              ) : (
+                <ThemedText style={styles.muted}>PDF licenca nije uploadovana.</ThemedText>
+              )}
+            </ThemedView>
+          );
+        })}
+      </ScrollView>
+    </ScreenShell>
   );
 }
 

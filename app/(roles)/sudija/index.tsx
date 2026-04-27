@@ -1,7 +1,8 @@
-import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
+import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { openLicensePdf } from '@/lib/license-viewer';
@@ -91,27 +92,16 @@ export default function SudijaHomeScreen() {
     load();
   }, [load]);
 
-  const onLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      Alert.alert('Logout greska', error.message);
-      return;
-    }
-    router.replace('/login');
-  };
-
   const profile = data?.profile;
   const license = data?.license;
   const leagues = data?.leagues ?? [];
   const matches = data?.matches ?? [];
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Sudija Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
       <ThemedText style={styles.subtitle}>
         Pregled profila i rasporeda utakmica koje su ti dodeljene.
@@ -144,6 +134,7 @@ export default function SudijaHomeScreen() {
 
       {!loading && activeTab === 'profile' ? (
         <>
+          <ThemeProfileToggle />
           <ThemedView style={styles.card}>
             <ThemedText type="subtitle">Licni podaci</ThemedText>
             <ThemedText>
@@ -229,6 +220,7 @@ export default function SudijaHomeScreen() {
         </>
       ) : null}
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -261,14 +253,6 @@ const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 32 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   subtitle: { opacity: 0.85 },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
   refreshButton: {
     borderWidth: 1,
     borderColor: '#999',

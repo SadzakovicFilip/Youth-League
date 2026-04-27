@@ -4,16 +4,14 @@ import React from 'react';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { tabNavigatorChromeOptions } from '@/lib/main-tab-chrome';
 
 export default function KlubLayout() {
-  const colorScheme = useColorScheme();
+  const colorScheme = useColorScheme() ?? 'light';
+  const c = Colors[colorScheme];
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-      }}>
+    <Tabs screenOptions={tabNavigatorChromeOptions(c)}>
       <Tabs.Screen
         name="index"
         options={{

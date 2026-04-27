@@ -7,6 +7,7 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { tabNavigatorChromeOptions } from '@/lib/main-tab-chrome';
 import { supabase } from '@/lib/supabase';
 
 export default function TabLayout() {
@@ -52,11 +53,13 @@ export default function TabLayout() {
     return <Redirect href="/login" />;
   }
 
+  const scheme = colorScheme ?? 'light';
+  const c = Colors[scheme];
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
+        ...tabNavigatorChromeOptions(c),
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen

@@ -96,21 +96,7 @@ export function LeagueCompetitionView({
     }
     setLoading(true);
     setErrorMessage('');
-    const ops: Promise<unknown>[] = [supabase.rpc('get_league_overview', { p_league_id: leagueId })];
-    if (!singleGroupId) {
-      ops.push(
-        supabase.rpc('get_league_top_scorers', {
-          p_league_id: leagueId,
-          p_group_id: null,
-          p_limit: 100,
-        })
-      );
-    }
-    const results = (await Promise.all(ops)) as {
-      data: unknown;
-      error: { message: string } | null;
-    }[];
-    const ovRes = results[0];
+    const ovRes = await supabase.rpc('get_league_overview', { p_league_id: leagueId });
     if (ovRes.error) {
       setErrorMessage(ovRes.error.message);
       setLoading(false);
@@ -119,11 +105,15 @@ export function LeagueCompetitionView({
     const ov = (ovRes.data ?? null) as OverviewPayload | null;
     setOverview(ov);
     if (!singleGroupId) {
-      const lsRes = results[1];
-      if (lsRes?.error) {
+      const lsRes = await supabase.rpc('get_league_top_scorers', {
+        p_league_id: leagueId,
+        p_group_id: null,
+        p_limit: 100,
+      });
+      if (lsRes.error) {
         setLeagueScorers(null);
       } else {
-        setLeagueScorers((lsRes?.data ?? null) as ScorersPayload | null);
+        setLeagueScorers((lsRes.data ?? null) as ScorersPayload | null);
       }
     }
     const firstGroup = singleGroupId ?? ov?.groups?.[0]?.id ?? null;
@@ -314,7 +304,7 @@ function ScorerList({
           disabled={!onOpenPlayer}
           onPress={() => onOpenPlayer?.(r.user_id)}>
           <ThemedText style={[styles.tCell, styles.tRank]}>{idx + 1}</ThemedText>
-          <View style={[styles.tCell, styles.tPlayer]}>
+          <View style={styles.tPlayerCol}>
             <ThemedText numberOfLines={1}>{playerName(r)}</ThemedText>
             {r.club_name ? (
               <ThemedText style={styles.scorerClub} numberOfLines={1}>
@@ -370,6 +360,7 @@ const styles = StyleSheet.create({
   tRank: { width: 24, textAlign: 'center', fontWeight: '700' },
   tClub: { flex: 1, minWidth: 0, fontWeight: '600' },
   tPlayer: { flex: 1, minWidth: 0 },
+  tPlayerCol: { flex: 1, minWidth: 0 },
   tNum: { width: 34, textAlign: 'center' },
   tPts: { width: 36, textAlign: 'center', fontWeight: '800' },
   tableFoot: { fontSize: 10, color: '#888', padding: 6 },

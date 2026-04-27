@@ -1,7 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
@@ -37,15 +38,6 @@ export default function SavezHomeScreen() {
     }, [loadRegions])
   );
 
-  const onLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      Alert.alert('Logout greska', error.message);
-      return;
-    }
-    router.replace('/login');
-  };
-
   const onCreate = async () => {
     if (!newName.trim()) {
       setErrorMessage('Naziv regije je obavezan.');
@@ -64,12 +56,10 @@ export default function SavezHomeScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Takmicenje</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
       <ThemedText>Lista regija. Klikni na regiju za dalje upravljanje ligama.</ThemedText>
 
@@ -114,6 +104,7 @@ export default function SavezHomeScreen() {
         </Pressable>
       ))}
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -121,14 +112,6 @@ const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
   sectionCard: {
     borderWidth: 1,
     borderColor: '#666',

@@ -1,7 +1,9 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 
+import { ScreenShell } from '@/components/screen-shell';
+import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
@@ -75,22 +77,11 @@ export default function ZapisnicarHomeScreen() {
     }, [load])
   );
 
-  const onLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      Alert.alert('Logout greska', error.message);
-      return;
-    }
-    router.replace('/login');
-  };
-
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Zapisnicar</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
 
       {errorMessage ? (
@@ -109,6 +100,8 @@ export default function ZapisnicarHomeScreen() {
           <ThemedText>Username: {profile.username ?? '-'}</ThemedText>
         </ThemedView>
       ) : null}
+
+      <ThemeProfileToggle />
 
       <Pressable style={styles.refreshButton} onPress={load}>
         <ThemedText style={styles.refreshText}>Refresh</ThemedText>
@@ -156,6 +149,7 @@ export default function ZapisnicarHomeScreen() {
         );
       })}
     </ScrollView>
+    </ScreenShell>
   );
 }
 
@@ -166,14 +160,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
   refreshButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
