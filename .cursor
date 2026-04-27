@@ -23,7 +23,7 @@ alwaysApply: true
 ## Hierarchy and role enforcement
 - Enforce permissions via `role_creation_rules` + DB functions (`has_role`, `can_create_role`, `can_manage_user`).
 - Keep role names exact and lowercase enum values:
-  `admin`, `savez`, `delegat`, `klub_direktor`, `trener`, `igrac`, `scout`, `zapisnicar`, `spectator`.
+  `admin`, `savez`, `delegat`, `klub`, `trener`, `igrac`, `scout`, `zapisnicar`, `spectator`.
 - Any role typo should be treated as invalid input.
 
 ## RLS and security
