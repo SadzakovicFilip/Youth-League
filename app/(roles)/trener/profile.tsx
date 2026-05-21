@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { router } from 'expo-router';
 
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { supabase } from '@/lib/supabase';
 
@@ -19,7 +21,7 @@ export default function TrenerProfileScreen() {
   const border = useThemeColor({}, 'border');
   const danger = useThemeColor({}, 'danger');
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
 
@@ -44,11 +46,13 @@ export default function TrenerProfileScreen() {
 
     setProfile((data as ProfileData) ?? null);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
-    loadProfile();
-  }, []);
+    void loadProfile();
+  }, [loadProfile]);
+
+  useScreenPullRefresh(loadProfile);
 
   const onLogout = async () => {
     await supabase.auth.signOut();
@@ -57,7 +61,7 @@ export default function TrenerProfileScreen() {
 
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <ThemedText type="title">Profil trenera</ThemedText>
 
         <ThemeProfileToggle />
@@ -93,7 +97,7 @@ export default function TrenerProfileScreen() {
             <ThemedText>Phone: {String(profile?.phone ?? '-')}</ThemedText>
           </ThemedView>
         ) : null}
-      </ScrollView>
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -9,25 +9,48 @@ import { useAppDrawerOptional } from '@/contexts/app-drawer-context';
 import { useAuthHeaderOptional } from '@/contexts/auth-header-context';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { resolveChromeLeftMode } from '@/lib/chrome-left-mode';
 import { supabase } from '@/lib/supabase';
 
-const HEADER_H = 52;
+const HEADER_H = 56;
 
 async function performLogout() {
   await supabase.auth.signOut();
   router.replace('/login');
 }
 
-export function AppChromeHeader() {
+type AppChromeHeaderProps = {
+  /** Kada je postavljeno (npr. na prvom/ drugom tabu), prikazuje se umesto display name-a. */
+  centerTitle?: string;
+};
+
+export function AppChromeHeader({ centerTitle }: AppChromeHeaderProps = {}) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const auth = useAuthHeaderOptional();
   const drawer = useAppDrawerOptional();
+  const pathname = usePathname();
+  const leftMode = resolveChromeLeftMode(pathname);
   const [logoutVisible, setLogoutVisible] = useState(false);
 
-  const title = auth ? (auth.loading ? '…' : auth.displayName || 'Korisnik') : 'Korisnik';
+  const userTitle = auth ? (auth.loading ? '…' : auth.displayName || 'Korisnik') : 'Korisnik';
+  const title = centerTitle?.trim() ? centerTitle.trim() : userTitle;
 
-  const onOpenMenu = () => drawer?.openDrawer();
+  const titleFont = Platform.select({
+    ios: { fontFamily: 'AvenirNext-Bold' },
+    android: { fontFamily: 'sans-serif-medium', fontWeight: '700' as const },
+    default: { fontWeight: '800' as const },
+  });
+
+  const onLeftPress = () => {
+    if (leftMode === 'drawer') {
+      drawer?.openDrawer();
+      return;
+    }
+    if (router.canGoBack()) {
+      router.back();
+    }
+  };
 
   const onConfirmLogout = () => {
     setLogoutVisible(false);
@@ -37,14 +60,22 @@ export function AppChromeHeader() {
   return (
     <View style={[styles.bar, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
       <Pressable
-        onPress={onOpenMenu}
+        onPress={onLeftPress}
         style={styles.sideBtn}
         hitSlop={12}
         accessibilityRole="button"
-        accessibilityLabel="Otvori meni">
-        <Ionicons name="basketball" size={26} color={c.tint} />
+        accessibilityLabel={leftMode === 'drawer' ? 'Otvori meni' : 'Nazad'}>
+        <Ionicons
+          name={leftMode === 'drawer' ? 'person-outline' : 'chevron-back'}
+          size={24}
+          color={c.tint}
+        />
       </Pressable>
-      <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
+      <Text
+        style={[styles.title, titleFont, { color: c.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}>
         {title}
       </Text>
       <Pressable
@@ -110,8 +141,8 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 19,
+    letterSpacing: 0.25,
   },
   modalRoot: {
     flex: 1,

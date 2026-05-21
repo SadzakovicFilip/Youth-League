@@ -1,10 +1,14 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
+import { router, useFocusEffect } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ClubContext, getMyClubContext, mapRpcClubContext } from '@/lib/club-context';
+import { getMyClubContext } from '@/lib/club-context';
 import { supabase } from '@/lib/supabase';
 
 type MatchRow = {
@@ -51,7 +55,6 @@ type MatchPayload = {
 export default function KlubUtakmiceScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [context, setContext] = useState<ClubContext | null>(null);
   const [homeMatches, setHomeMatches] = useState<MatchRow[]>([]);
   const [awayMatches, setAwayMatches] = useState<MatchRow[]>([]);
   const [scorers, setScorers] = useState<ScorerRow[]>([]);
@@ -67,15 +70,8 @@ export default function KlubUtakmiceScreen() {
       supabase.rpc('get_klub_eligible_scorers', { p_club_id: null }),
     ]);
 
-    let resolvedClubId: number | null = null;
-
     if (!matchRpc.error && matchRpc.data) {
       const payload = matchRpc.data as MatchPayload;
-      const mappedCtx = mapRpcClubContext(payload.context);
-      if (mappedCtx) {
-        setContext(mappedCtx);
-        resolvedClubId = mappedCtx.clubId;
-      }
       setHomeMatches(payload.home ?? []);
       setAwayMatches(payload.away ?? []);
     }
@@ -91,8 +87,6 @@ export default function KlubUtakmiceScreen() {
         setLoading(false);
         return;
       }
-      setContext(clubCtx);
-      resolvedClubId = clubCtx.clubId;
 
       if (matchRpc.error) {
         const [hRes, aRes] = await Promise.all([
@@ -157,11 +151,6 @@ export default function KlubUtakmiceScreen() {
       }
     }
 
-    if (resolvedClubId == null) {
-      const { data: clubCtx } = await getMyClubContext();
-      if (clubCtx) setContext(clubCtx);
-    }
-
     setLoading(false);
   }, []);
 
@@ -172,6 +161,8 @@ export default function KlubUtakmiceScreen() {
   );
 
   const scorerMap = useMemo(() => new Map(scorers.map((s) => [s.user_id, s])), [scorers]);
+
+  const tabMatches = activeTab === 'home' ? homeMatches : awayMatches;
 
   const assignScorer = async (matchId: number, userId: string) => {
     setAssigningMatchId(matchId);
@@ -231,24 +222,10 @@ export default function KlubUtakmiceScreen() {
     }
   };
 
+  useScreenPullRefresh(loadData);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Utakmice kluba</ThemedText>
-      <ThemedText>
-        Prikaz utakmica ovog kluba kroz dva taba: domacin i gost. Dodela zapisnicara je obavezna za domace utakmice.
-      </ThemedText>
-      <Pressable style={styles.secondaryButton} onPress={loadData}>
-        <ThemedText style={styles.secondaryButtonText}>Refresh</ThemedText>
-      </Pressable>
-
-      {context ? (
-        <ThemedView style={styles.card}>
-          <ThemedText type="defaultSemiBold">{context.clubName}</ThemedText>
-          <ThemedText>Liga: {context.leagueName ?? '-'}</ThemedText>
-          <ThemedText>Grupa: {context.groupName ?? '-'}</ThemedText>
-        </ThemedView>
-      ) : null}
-
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <ThemedView style={styles.tabRow}>
         <Pressable
           style={[styles.tabButton, activeTab === 'home' && styles.tabButtonActive]}
@@ -280,64 +257,66 @@ export default function KlubUtakmiceScreen() {
         <ThemedText>Nema gostujucih utakmica.</ThemedText>
       ) : null}
 
-      {!loading && activeTab === 'home'
-        ? homeMatches.map((m) => (
-            <ThemedView key={m.id} style={styles.card}>
-              <ThemedText type="defaultSemiBold">vs {m.away_club_name ?? `#${m.away_club_id}`}</ThemedText>
-              <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-              <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
-              <ThemedText>
-                Rezultat:{' '}
-                {m.home_score != null && m.away_score != null
-                  ? `${m.home_score}:${m.away_score}`
-                  : 'nije upisano'}
-              </ThemedText>
-              <ThemedText>
-                Zapisnicar:{' '}
-                {m.scorer_display_name || (m.scorer_username ? `@${m.scorer_username}` : 'nije dodeljen')}
-              </ThemedText>
+      {!loading && tabMatches.length > 0 ? (
+        <MatchTimetableCalendar
+          matches={tabMatches}
+          onMatchPress={(m) => router.push(`/klub/utakmica/${m.id}` as never)}
+          renderMatch={(m) =>
+            activeTab === 'home' ? (
+              <ThemedView style={styles.card}>
+                <ThemedText type="defaultSemiBold">vs {m.away_club_name ?? `#${m.away_club_id}`}</ThemedText>
+                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
+                <ThemedText>
+                  Rezultat:{' '}
+                  {m.home_score != null && m.away_score != null
+                    ? `${m.home_score}:${m.away_score}`
+                    : 'nije upisano'}
+                </ThemedText>
+                <ThemedText>
+                  Zapisnicar:{' '}
+                  {m.scorer_display_name || (m.scorer_username ? `@${m.scorer_username}` : 'nije dodeljen')}
+                </ThemedText>
 
-              <ThemedText type="defaultSemiBold">Dodeli zapisnicara:</ThemedText>
-              <ThemedView style={styles.chipRow}>
-                {scorers.map((s) => {
-                  const label =
-                    s.display_name ||
-                    [s.first_name, s.last_name].filter(Boolean).join(' ') ||
-                    s.username ||
-                    'Korisnik';
-                  const isActive = m.scorer_user_id === s.user_id;
-                  return (
-                    <Pressable
-                      key={`${m.id}-${s.user_id}`}
-                      style={[styles.chip, isActive && styles.chipActive]}
-                      onPress={() => assignScorer(m.id, s.user_id)}
-                      disabled={assigningMatchId === m.id}>
-                      <ThemedText style={isActive ? styles.chipActiveText : undefined}>{label}</ThemedText>
-                    </Pressable>
-                  );
-                })}
+                <ThemedText type="defaultSemiBold">Dodeli zapisnicara:</ThemedText>
+                <ThemedView style={styles.chipRow}>
+                  {scorers.map((s) => {
+                    const label =
+                      s.display_name ||
+                      [s.first_name, s.last_name].filter(Boolean).join(' ') ||
+                      s.username ||
+                      'Korisnik';
+                    const isActive = m.scorer_user_id === s.user_id;
+                    return (
+                      <Pressable
+                        key={`${m.id}-${s.user_id}`}
+                        style={[styles.chip, isActive && styles.chipActive]}
+                        onPress={() => assignScorer(m.id, s.user_id)}
+                        disabled={assigningMatchId === m.id}>
+                        <ThemedText style={isActive ? styles.chipActiveText : undefined}>{label}</ThemedText>
+                      </Pressable>
+                    );
+                  })}
+                </ThemedView>
+                {assigningMatchId === m.id ? <ActivityIndicator /> : null}
               </ThemedView>
-              {assigningMatchId === m.id ? <ActivityIndicator /> : null}
-            </ThemedView>
-          ))
-        : null}
-
-      {!loading && activeTab === 'away'
-        ? awayMatches.map((m) => (
-            <ThemedView key={m.id} style={styles.card}>
-              <ThemedText type="defaultSemiBold">@ {m.home_club_name ?? `#${m.home_club_id}`}</ThemedText>
-              <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-              <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
-              <ThemedText>
-                Rezultat:{' '}
-                {m.home_score != null && m.away_score != null
-                  ? `${m.home_score}:${m.away_score}`
-                  : 'nije upisano'}
-              </ThemedText>
-            </ThemedView>
-          ))
-        : null}
-    </ScrollView>
+            ) : (
+              <ThemedView style={styles.card}>
+                <ThemedText type="defaultSemiBold">@ {m.home_club_name ?? `#${m.home_club_id}`}</ThemedText>
+                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
+                <ThemedText>
+                  Rezultat:{' '}
+                  {m.home_score != null && m.away_score != null
+                    ? `${m.home_score}:${m.away_score}`
+                    : 'nije upisano'}
+                </ThemedText>
+              </ThemedView>
+            )
+          }
+        />
+      ) : null}
+    </RefreshableScrollView>
   );
 }
 
@@ -352,7 +331,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  tabButtonActive: { backgroundColor: '#0a7ea4', borderColor: '#0a7ea4' },
+  tabButtonActive: { backgroundColor: ActionAccentHex, borderColor: ActionAccentHex },
   tabButtonActiveText: { color: '#fff', fontWeight: '600' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
@@ -362,17 +341,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  chipActive: { backgroundColor: '#0a7ea4', borderColor: '#0a7ea4' },
+  chipActive: { backgroundColor: ActionAccentHex, borderColor: ActionAccentHex },
   chipActiveText: { color: '#fff', fontWeight: '600' },
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: '#0a7ea4',
-    borderRadius: 8,
-    minHeight: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  secondaryButtonText: { color: '#0a7ea4', fontWeight: '600' },
   errorText: { color: '#c53939' },
 });

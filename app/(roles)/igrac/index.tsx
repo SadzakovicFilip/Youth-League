@@ -1,13 +1,15 @@
+import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
 import { Link, router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ScreenShell } from '@/components/screen-shell';
-import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { UserDetailView } from '@/components/shared/user-detail-view';
 import { supabase } from '@/lib/supabase';
 
 type AttendanceRow = {
@@ -122,12 +124,11 @@ type MatchHubPayload = {
   career: HubAgg;
 };
 
-type PlayerTabKey = 'attendance' | 'fees' | 'stats' | 'tactics' | 'profile' | 'league' | 'schedule';
+type PlayerTabKey = 'attendance' | 'fees' | 'stats' | 'tactics' | 'league' | 'schedule';
 
 export default function IgracHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [userId, setUserId] = useState<string | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [fees, setFees] = useState<FeeRow[]>([]);
   const [stats, setStats] = useState<StatRow[]>([]);
@@ -151,8 +152,6 @@ export default function IgracHomeScreen() {
       setLoading(false);
       return;
     }
-
-    setUserId(user.id);
 
     // Jedan RPC poziv umesto 7 (F24 konsolidacija)
     const { data: dash, error: dashErr } = await supabase.rpc('get_igrac_dashboard');
@@ -186,12 +185,20 @@ export default function IgracHomeScreen() {
     loadPlayerData();
   }, [loadPlayerData]);
 
+  const igracTimetableMatches = useMemo(() => {
+    if (!matchHub) return [] as Array<HubUpcoming | (HubPlayed & { id: number })>;
+    const played = matchHub.played.map((p) => ({ ...p, id: p.match_id }));
+    return [...matchHub.upcoming, ...played];
+  }, [matchHub]);
+
+  useScreenPullRefresh(loadPlayerData);
+
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedText type="title">Igrac Dashboard</ThemedText>
       <ThemedText style={styles.subtitle}>
-        Read-only pregled: prisustvo, clanarina, statistika, taktike, profil, liga i utakmice.
+        Read-only pregled: prisustvo, clanarina, statistika, taktike, liga i utakmice. Profil i tema su u bočnom meniju.
       </ThemedText>
 
       <Link href="/home" style={styles.link}>
@@ -207,7 +214,6 @@ export default function IgracHomeScreen() {
         <TabButton label="Clanarina" active={activeTab === 'fees'} onPress={() => setActiveTab('fees')} />
         <TabButton label="Statistika" active={activeTab === 'stats'} onPress={() => setActiveTab('stats')} />
         <TabButton label="Taktike" active={activeTab === 'tactics'} onPress={() => setActiveTab('tactics')} />
-        <TabButton label="Profil" active={activeTab === 'profile'} onPress={() => setActiveTab('profile')} />
         <TabButton label="Liga" active={activeTab === 'league'} onPress={() => setActiveTab('league')} />
         <TabButton label="Utakmice" active={activeTab === 'schedule'} onPress={() => setActiveTab('schedule')} />
       </ThemedView>
@@ -311,21 +317,6 @@ export default function IgracHomeScreen() {
         </Section>
       ) : null}
 
-      {activeTab === 'profile' ? (
-        userId ? (
-          <>
-            <Section title="Podesavanja">
-              <ThemeProfileToggle />
-            </Section>
-            <UserDetailView userId={userId} showBackButton={false} />
-          </>
-        ) : (
-          <Section title="Moj profil">
-            <ThemedText>Nema aktivne sesije.</ThemedText>
-          </Section>
-        )
-      ) : null}
-
       {activeTab === 'league' ? (
         <Section title="Moja liga">
           {!clubContext ? (
@@ -360,7 +351,11 @@ export default function IgracHomeScreen() {
               {clubContext.league_id ? (
                 <LeagueCompetitionView
                   leagueId={clubContext.league_id}
-                  onOpenPlayer={(uid) => router.push(`/igrac/korisnik/${uid}`)}
+          onOpenPlayer={(uid, cid) =>
+            router.push(
+              `/igrac/korisnik/${uid}${cid != null ? `?clubId=${cid}` : ''}` as never,
+            )
+          }
                   onOpenClub={(cid) => router.push(`/igrac/klub/${cid}`)}
                 />
               ) : null}
@@ -377,57 +372,56 @@ export default function IgracHomeScreen() {
             </Section>
           ) : (
             <>
-              <Section title="Predstojece utakmice">
-                {matchHub.upcoming.length === 0 ? (
-                  <ThemedText>Nema predstojecih utakmica.</ThemedText>
+              <Section title="Raspored utakmica">
+                {igracTimetableMatches.length === 0 ? (
+                  <ThemedText>Nema utakmica u rasporedu.</ThemedText>
                 ) : (
-                  matchHub.upcoming.map((m) => {
-                    const opp =
-                      m.side === 'home' ? (m.away_club_name ?? `#${m.away_club_id}`) : (m.home_club_name ?? `#${m.home_club_id}`);
-                    const prefix = m.side === 'home' ? 'vs' : '@';
-                    return (
-                      <ThemedView key={m.id} style={styles.matchRow}>
-                        <ThemedText type="defaultSemiBold">
-                          {prefix} {opp}
-                        </ThemedText>
-                        <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                        {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                        <ThemedText>Status: {m.status}</ThemedText>
-                        {m.home_score != null && m.away_score != null ? (
-                          <ThemedText>
-                            Rezultat (uzivo): {m.home_score} - {m.away_score}
+                  <MatchTimetableCalendar
+                    matches={igracTimetableMatches}
+                    onMatchPress={(m) => router.push(`/igrac/utakmica/${m.id}` as never)}
+                    renderMatch={(m) => {
+                      const isPlayed = 'match_id' in m;
+                      if (isPlayed) {
+                        const p = m as HubPlayed & { id: number };
+                        const opp = p.side === 'home' ? (p.away_club_name ?? '-') : (p.home_club_name ?? '-');
+                        const prefix = p.side === 'home' ? 'vs' : '@';
+                        return (
+                          <ThemedView style={styles.matchRow}>
+                            <ThemedText type="defaultSemiBold">
+                              {formatDate(p.scheduled_at)} — {prefix} {opp} ({p.result})
+                            </ThemedText>
+                            <ThemedText>
+                              Rezultat: {p.home_score ?? '-'} : {p.away_score ?? '-'}
+                            </ThemedText>
+                            <ThemedText>Dres: {p.jersey_number != null ? `#${p.jersey_number}` : '-'}</ThemedText>
+                            <ThemedText>
+                              Tvoji poeni: {p.total_points} (+1: {p.pts_ft}, +2: {p.pts_2}, +3: {p.pts_3})
+                            </ThemedText>
+                            <ThemedText>Licne greske: {p.fouls}</ThemedText>
+                          </ThemedView>
+                        );
+                      }
+                      const u = m as HubUpcoming;
+                      const opp =
+                        u.side === 'home' ? (u.away_club_name ?? `#${u.away_club_id}`) : (u.home_club_name ?? `#${u.home_club_id}`);
+                      const prefix = u.side === 'home' ? 'vs' : '@';
+                      return (
+                        <ThemedView style={styles.matchRow}>
+                          <ThemedText type="defaultSemiBold">
+                            {prefix} {opp}
                           </ThemedText>
-                        ) : null}
-                      </ThemedView>
-                    );
-                  })
-                )}
-              </Section>
-
-              <Section title="Odigrane utakmice (statistika sa terena)">
-                {matchHub.played.length === 0 ? (
-                  <ThemedText>Nema odigranih utakmica.</ThemedText>
-                ) : (
-                  matchHub.played.map((m) => {
-                    const opp =
-                      m.side === 'home' ? (m.away_club_name ?? '-') : (m.home_club_name ?? '-');
-                    const prefix = m.side === 'home' ? 'vs' : '@';
-                    return (
-                      <ThemedView key={m.match_id} style={styles.matchRow}>
-                        <ThemedText type="defaultSemiBold">
-                          {formatDate(m.scheduled_at)} — {prefix} {opp} ({m.result})
-                        </ThemedText>
-                        <ThemedText>
-                          Rezultat: {m.home_score ?? '-'} : {m.away_score ?? '-'}
-                        </ThemedText>
-                        <ThemedText>Dres: {m.jersey_number != null ? `#${m.jersey_number}` : '-'}</ThemedText>
-                        <ThemedText>
-                          Tvoji poeni: {m.total_points} (+1: {m.pts_ft}, +2: {m.pts_2}, +3: {m.pts_3})
-                        </ThemedText>
-                        <ThemedText>Licne greske: {m.fouls}</ThemedText>
-                      </ThemedView>
-                    );
-                  })
+                          <ThemedText>Termin: {formatDate(u.scheduled_at)}</ThemedText>
+                          {u.venue ? <ThemedText>Mesto: {u.venue}</ThemedText> : null}
+                          <ThemedText>Status: {u.status}</ThemedText>
+                          {u.home_score != null && u.away_score != null ? (
+                            <ThemedText>
+                              Rezultat (uzivo): {u.home_score} - {u.away_score}
+                            </ThemedText>
+                          ) : null}
+                        </ThemedView>
+                      );
+                    }}
+                  />
                 )}
               </Section>
 
@@ -462,7 +456,7 @@ export default function IgracHomeScreen() {
           )}
         </>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
     </ScreenShell>
   );
 }
@@ -550,8 +544,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   tabButtonActive: {
-    backgroundColor: '#0a7ea4',
-    borderColor: '#0a7ea4',
+    backgroundColor: ActionAccentHex,
+    borderColor: ActionAccentHex,
   },
   tabButtonActiveText: {
     color: '#fff',
@@ -574,11 +568,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cardMine: {
-    borderColor: '#0a7ea4',
-    backgroundColor: '#eaf4f8',
+    borderColor: ActionAccentHex,
+    backgroundColor: ActionAccentWash,
   },
   openHint: {
-    color: '#0a7ea4',
+    color: ActionAccentHex,
     fontWeight: '600',
     fontSize: 12,
   },
@@ -602,7 +596,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  attendancePresent: { backgroundColor: '#0a7ea4', color: '#fff' },
+  attendancePresent: { backgroundColor: ActionAccentHex, color: '#fff' },
   attendanceAbsent: { backgroundColor: '#eee', color: '#666' },
   tacticCard: {
     borderWidth: 1,
@@ -624,11 +618,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  tacticKindAttack: { backgroundColor: '#0a7ea4', color: '#fff' },
+  tacticKindAttack: { backgroundColor: ActionAccentHex, color: '#fff' },
   tacticKindDefense: { backgroundColor: '#c53939', color: '#fff' },
   actionMini: {
     borderLeftWidth: 3,
-    borderLeftColor: '#0a7ea4',
+    borderLeftColor: ActionAccentHex,
     paddingLeft: 8,
     paddingVertical: 2,
   },

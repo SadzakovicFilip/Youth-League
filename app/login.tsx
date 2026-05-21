@@ -1,58 +1,45 @@
-import { useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
-import { router } from 'expo-router';
+import { router } from "expo-router";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
-import { BasketballBrandMark } from '@/components/basketball-brand-mark';
-import { ScreenShell } from '@/components/screen-shell';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { usernameToEmail } from '@/lib/auth';
-import { getRoleHomeRoute } from '@/lib/role-home-route';
-import { supabase } from '@/lib/supabase';
-import { useThemeColor } from '@/hooks/use-theme-color';
+import { BasketballBrandMark } from "@/components/basketball-brand-mark";
+import { ScreenShell } from "@/components/screen-shell";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedTextInput } from "@/components/themed-text-input";
+import { ThemedView } from "@/components/themed-view";
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useThemeColor } from "@/hooks/use-theme-color";
+import { usernameToEmail } from "@/lib/auth";
+import { getRoleHomeRoute } from "@/lib/role-home-route";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginScreen() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const accent = useThemeColor({}, 'accent');
-  const surface = useThemeColor({}, 'surface');
-  const border = useThemeColor({}, 'border');
-  const inputBg = useThemeColor({}, 'inputBackground');
-  const inputBorder = useThemeColor({}, 'inputBorder');
-  const textMain = useThemeColor({}, 'text');
-  const textMuted = useThemeColor({}, 'textMuted');
-  const danger = useThemeColor({}, 'danger');
+  const accent = useThemeColor({}, "accent");
+  const surface = useThemeColor({}, "surface");
+  const border = useThemeColor({}, "border");
+  const textMuted = useThemeColor({}, "textMuted");
+  const danger = useThemeColor({}, "danger");
 
-  const inputStyles = useMemo(
-    () => [
-      styles.input,
-      {
-        color: textMain,
-        backgroundColor: inputBg,
-        borderColor: inputBorder,
-      },
-    ],
-    [textMain, inputBg, inputBorder]
+  useScreenPullRefresh(
+    useCallback(async () => {
+      await supabase.auth.getSession();
+    }, []),
   );
 
   const onLogin = async () => {
     if (!username.trim() || !password) {
-      setErrorMessage('Unesi username i password.');
+      setErrorMessage("Unesi username i password.");
       return;
     }
 
     setLoading(true);
-    setErrorMessage('');
+    setErrorMessage("");
 
     const tried = new Set<string>();
     let lastErrorMessage: string | null = null;
@@ -71,15 +58,17 @@ export default function LoginScreen() {
       return !res.error;
     };
 
-    const { data: resolvedEmail } = await supabase.rpc('get_login_email', {
+    const { data: resolvedEmail } = await supabase.rpc("get_login_email", {
       p_username: username,
     });
-    const ok1 = await attempt(typeof resolvedEmail === 'string' ? resolvedEmail : null);
+    const ok1 = await attempt(
+      typeof resolvedEmail === "string" ? resolvedEmail : null,
+    );
 
     const primaryEmail = usernameToEmail(username);
     const ok2 = ok1 || (await attempt(primaryEmail));
 
-    if (!ok2 && username.includes('@')) {
+    if (!ok2 && username.includes("@")) {
       await attempt(username);
     }
 
@@ -96,23 +85,30 @@ export default function LoginScreen() {
 
     if (!user) {
       setLoading(false);
-      setErrorMessage('Login je prosao, ali sesija nije dostupna. Pokusaj ponovo.');
+      setErrorMessage(
+        "Login je prosao, ali sesija nije dostupna. Pokusaj ponovo.",
+      );
       return;
     }
 
-    const { data: roleRow } = await supabase.from('user_roles').select('role').eq('user_id', user.id).maybeSingle();
-    const route = getRoleHomeRoute(roleRow?.role ?? '');
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const route = getRoleHomeRoute(roleRow?.role ?? "");
 
     setLoading(false);
-    router.replace((route ?? '/(tabs)') as never);
+    router.replace((route ?? "/(tabs)") as never);
   };
 
   return (
-    <ScreenShell edges={['left', 'right', 'bottom']}>
-      <ScrollView
+    <ScreenShell edges={["left", "right", "bottom"]}>
+      <RefreshableScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.hero}>
           <BasketballBrandMark size="lg" />
           <ThemedText type="title" style={styles.title}>
@@ -123,15 +119,19 @@ export default function LoginScreen() {
           </ThemedText>
         </View>
 
-        <ThemedView style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
+        <ThemedView
+          style={[
+            styles.card,
+            { backgroundColor: surface, borderColor: border },
+          ]}
+        >
           <ThemedText type="subtitle">Prijava</ThemedText>
           <ThemedText style={[styles.subtitle, { color: textMuted }]}>
             Username i lozinka (sintetički email se rešava automatski)
           </ThemedText>
 
-          <TextInput
+          <ThemedTextInput
             placeholder="Username"
-            placeholderTextColor={textMuted}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
@@ -140,22 +140,26 @@ export default function LoginScreen() {
             keyboardType="email-address"
             value={username}
             onChangeText={setUsername}
-            style={inputStyles}
+            style={styles.loginField}
           />
 
-          <TextInput
+          <ThemedTextInput
             placeholder="Password"
-            placeholderTextColor={textMuted}
             secureTextEntry
             value={password}
             onChangeText={setPassword}
-            style={inputStyles}
+            style={styles.loginField}
           />
 
           <Pressable
-            style={[styles.button, { backgroundColor: accent }, loading && styles.buttonDisabled]}
+            style={[
+              styles.button,
+              { backgroundColor: accent },
+              loading && styles.buttonDisabled,
+            ]}
             onPress={onLogin}
-            disabled={loading}>
+            disabled={loading}
+          >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -164,10 +168,12 @@ export default function LoginScreen() {
           </Pressable>
 
           {errorMessage ? (
-            <ThemedText style={[styles.error, { color: danger }]}>{errorMessage}</ThemedText>
+            <ThemedText style={[styles.error, { color: danger }]}>
+              {errorMessage}
+            </ThemedText>
           ) : null}
         </ThemedView>
-      </ScrollView>
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }
@@ -175,14 +181,14 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingVertical: 24,
     paddingHorizontal: 20,
     gap: 20,
   },
-  hero: { alignItems: 'center', gap: 8 },
-  title: { marginTop: 8, textAlign: 'center' },
-  tagline: { fontSize: 15, textAlign: 'center' },
+  hero: { alignItems: "center", gap: 8 },
+  title: { marginTop: 8, textAlign: "center" },
+  tagline: { fontSize: 15, textAlign: "center" },
   card: {
     gap: 12,
     padding: 20,
@@ -190,8 +196,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   subtitle: { marginBottom: 4, fontSize: 14 },
-  input: {
-    borderWidth: 1,
+  loginField: {
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -201,10 +206,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
     minHeight: 48,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   buttonDisabled: { opacity: 0.65 },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   error: { marginTop: 4, fontSize: 14 },
 });

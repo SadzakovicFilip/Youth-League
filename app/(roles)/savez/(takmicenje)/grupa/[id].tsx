@@ -1,8 +1,15 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import type { BreadcrumbItem } from '@/components/savez/savez-breadcrumbs';
+import { useSyncTakmicenjeDrillChrome } from '@/contexts/takmicenje-drill-chrome-context';
+import { ConfirmRemoveIconButton } from '@/components/confirm-remove-icon-button';
 import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
@@ -47,6 +54,12 @@ export default function GrupaDetailScreen() {
   const [inGroupIds, setInGroupIds] = useState<number[]>([]);
   const [otherGroupClubIds, setOtherGroupClubIds] = useState<Set<number>>(new Set());
   const [matches, setMatches] = useState<Match[]>([]);
+  const [navTrail, setNavTrail] = useState<{
+    leagueId: number;
+    leagueName: string;
+    regionId: number | null;
+    regionName: string | null;
+  } | null>(null);
 
   const loadAll = useCallback(async () => {
     if (!Number.isFinite(groupId)) {
@@ -65,6 +78,7 @@ export default function GrupaDetailScreen() {
       setInGroupIds([]);
       setOtherGroupClubIds(new Set());
       setMatches([]);
+      setNavTrail(null);
       setLoading(false);
       return;
     }
@@ -106,6 +120,30 @@ export default function GrupaDetailScreen() {
     }
 
     setMatches(resolvedMatches);
+
+    const g = payload.group;
+    if (g?.league_id) {
+      const { data: le } = await supabase.from('leagues').select('name, region_id').eq('id', g.league_id).maybeSingle();
+      if (le) {
+        const rid = le.region_id as number | null;
+        let rn: string | null = null;
+        if (rid != null) {
+          const { data: reg } = await supabase.from('regions').select('name').eq('id', rid).maybeSingle();
+          rn = (reg?.name as string | undefined) ?? null;
+        }
+        setNavTrail({
+          leagueId: g.league_id,
+          leagueName: le.name as string,
+          regionId: rid,
+          regionName: rn,
+        });
+      } else {
+        setNavTrail(null);
+      }
+    } else {
+      setNavTrail(null);
+    }
+
     setLoading(false);
   }, [groupId]);
 
@@ -141,12 +179,29 @@ export default function GrupaDetailScreen() {
     await loadAll();
   };
 
+  const chromeTitle = group?.name ?? 'Grupa';
+  const chromeItems = useMemo<BreadcrumbItem[]>(
+    () => [
+      { label: 'Regije', path: '/savez' },
+      ...(navTrail?.regionId != null
+        ? [
+            {
+              label: navTrail.regionName ?? `Regija #${navTrail.regionId}`,
+              path: `/savez/regija/${navTrail.regionId}`,
+            },
+          ]
+        : []),
+      ...(navTrail ? [{ label: navTrail.leagueName, path: `/savez/liga/${navTrail.leagueId}` }] : []),
+      { label: chromeTitle },
+    ],
+    [chromeTitle, navTrail],
+  );
+  useSyncTakmicenjeDrillChrome(true, chromeTitle, chromeItems);
+
+  useScreenPullRefresh(loadAll);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <ThemedText style={styles.backText}>← Nazad</ThemedText>
-      </Pressable>
-      <ThemedText type="title">{group?.name ?? 'Grupa'}</ThemedText>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <ThemedText>Dodaj ili ukloni klubove iz ove grupe.</ThemedText>
 
       {loading ? <ActivityIndicator /> : null}
@@ -168,9 +223,11 @@ export default function GrupaDetailScreen() {
               <ThemedText type="defaultSemiBold">{c?.name ?? `#${cid}`}</ThemedText>
               <ThemedText style={styles.clubOpenText}>Otvori tim ▸</ThemedText>
             </Pressable>
-            <Pressable style={styles.removeMini} onPress={() => toggle(cid, true)}>
-              <ThemedText style={styles.removeText}>Ukloni ✕</ThemedText>
-            </Pressable>
+            <ConfirmRemoveIconButton
+              title="Ukloni klub iz grupe"
+              message={`${c?.name ?? `Klub #${cid}`} će biti uklonjen iz ove grupe. Nastaviti?`}
+              onConfirm={() => toggle(cid, true)}
+            />
           </ThemedView>
         );
       })}
@@ -198,22 +255,25 @@ export default function GrupaDetailScreen() {
       </ThemedText>
       {matches.length === 0 ? (
         <ThemedText>Nema zakazanih utakmica u ovoj grupi.</ThemedText>
-      ) : null}
-      {matches.map((m) => (
-        <ThemedView key={m.id} style={styles.matchCard}>
-          <ThemedText type="defaultSemiBold">
-            {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
-          </ThemedText>
-          <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-          <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
-          <ThemedText>
-            Status: {m.status}
-            {m.home_score != null && m.away_score != null
-              ? `  |  ${m.home_score}:${m.away_score}`
-              : ''}
-          </ThemedText>
-        </ThemedView>
-      ))}
+      ) : (
+        <MatchTimetableCalendar
+          matches={matches}
+          onMatchPress={(m) => router.push(`/matches/${m.id}` as never)}
+          renderMatch={(m) => (
+            <ThemedView style={styles.matchCard}>
+              <ThemedText type="defaultSemiBold">
+                {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
+              </ThemedText>
+              <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+              <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
+              <ThemedText>
+                Status: {m.status}
+                {m.home_score != null && m.away_score != null ? `  |  ${m.home_score}:${m.away_score}` : ''}
+              </ThemedText>
+            </ThemedView>
+          )}
+        />
+      )}
 
       {group?.league_id ? (
         <>
@@ -221,12 +281,16 @@ export default function GrupaDetailScreen() {
           <LeagueCompetitionView
             leagueId={group.league_id}
             singleGroupId={groupId}
-            onOpenPlayer={(uid) => router.push(`/savez/korisnik/${uid}`)}
+            onOpenPlayer={(uid, cid) =>
+              router.push(
+                `/savez/korisnik/${uid}${cid != null ? `?clubId=${cid}` : ''}` as never,
+              )
+            }
             onOpenClub={(cid) => router.push(`/savez/klub/${cid}`)}
           />
         </>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
@@ -240,36 +304,17 @@ function formatDate(iso: string) {
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  backText: { fontWeight: '600' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
-  removeCard: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    padding: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  removeText: { color: '#c53939', fontWeight: '600' },
   addCard: {
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     padding: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  addText: { color: '#0a7ea4', fontWeight: '600' },
+  addText: { color: ActionAccentHex, fontWeight: '600' },
   errorText: { color: '#c53939' },
   matchCard: {
     borderWidth: 1,
@@ -286,18 +331,11 @@ const styles = StyleSheet.create({
   clubOpen: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     padding: 10,
     gap: 4,
   },
-  clubOpenText: { color: '#0a7ea4', fontWeight: '600' },
-  removeMini: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-  },
+  clubOpenText: { color: ActionAccentHex, fontWeight: '600' },
   divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
 });

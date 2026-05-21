@@ -1,19 +1,15 @@
+import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
 import { router, useFocusEffect } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ScreenShell } from '@/components/screen-shell';
-import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
-
-type ProfileRow = {
-  username: string | null;
-  display_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-};
 
 type MatchRow = {
   id: number;
@@ -40,7 +36,6 @@ function formatDate(iso: string | null | undefined) {
 }
 
 export default function ZapisnicarHomeScreen() {
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -57,15 +52,9 @@ export default function ZapisnicarHomeScreen() {
       return;
     }
 
-    const [profileRes, matchesRes] = await Promise.all([
-      supabase.from('profiles').select('username, display_name, first_name, last_name').eq('id', user.id).maybeSingle(),
-      supabase.rpc('get_my_zapisnicar_matches'),
-    ]);
+    const matchesRes = await supabase.rpc('get_my_zapisnicar_matches');
 
-    if (profileRes.error) setErrorMessage(profileRes.error.message);
-    else setProfile(profileRes.data);
-
-    if (matchesRes.error) setErrorMessage((prev) => prev || matchesRes.error!.message);
+    if (matchesRes.error) setErrorMessage(matchesRes.error.message);
     else setMatches((matchesRes.data as MatchRow[]) ?? []);
 
     setLoading(false);
@@ -77,9 +66,11 @@ export default function ZapisnicarHomeScreen() {
     }, [load])
   );
 
+  useScreenPullRefresh(load);
+
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Zapisnicar</ThemedText>
       </ThemedView>
@@ -90,18 +81,7 @@ export default function ZapisnicarHomeScreen() {
         </ThemedView>
       ) : null}
 
-      {profile ? (
-        <ThemedView style={styles.card}>
-          <ThemedText type="defaultSemiBold">
-            {profile.display_name ||
-              [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
-              'Zapisnicar'}
-          </ThemedText>
-          <ThemedText>Username: {profile.username ?? '-'}</ThemedText>
-        </ThemedView>
-      ) : null}
-
-      <ThemeProfileToggle />
+      <ThemedText style={styles.mutedLine}>Profil i tema: bočni meni.</ThemedText>
 
       <Pressable style={styles.refreshButton} onPress={load}>
         <ThemedText style={styles.refreshText}>Refresh</ThemedText>
@@ -117,44 +97,49 @@ export default function ZapisnicarHomeScreen() {
         </ThemedView>
       ) : null}
 
-      {matches.map((m) => {
-        const isLive = m.status === 'live';
-        const isFinished = m.status === 'finished';
-        return (
-          <Pressable
-            key={m.id}
-            style={[styles.matchCard, isLive && styles.matchCardLive, isFinished && styles.matchCardFinished]}
-            onPress={() => router.push(`/zapisnicar/utakmica/${m.id}` as never)}>
-            <ThemedText type="defaultSemiBold">
-              {m.home_club_name ?? '-'} vs {m.away_club_name ?? '-'}
-            </ThemedText>
-            <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-            {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-            <ThemedText>
-              Status:{' '}
-              <ThemedText
-                style={[
-                  isLive && styles.statusLive,
-                  isFinished && styles.statusFinished,
-                ]}>
-                {m.status}
-              </ThemedText>
-            </ThemedText>
-            {m.home_score !== null && m.away_score !== null ? (
-              <ThemedText>
-                Rezultat: {m.home_score} : {m.away_score}
-              </ThemedText>
-            ) : null}
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+      {!loading && matches.length > 0 ? (
+        <MatchTimetableCalendar
+          matches={matches}
+          onMatchPress={(m) => router.push(`/zapisnicar/utakmica/${m.id}` as never)}
+          renderMatch={(m) => {
+            const isLive = m.status === 'live';
+            const isFinished = m.status === 'finished';
+            return (
+              <ThemedView
+                style={[styles.matchCard, isLive && styles.matchCardLive, isFinished && styles.matchCardFinished]}>
+                <ThemedText type="defaultSemiBold">
+                  {m.home_club_name ?? '-'} vs {m.away_club_name ?? '-'}
+                </ThemedText>
+                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                <ThemedText>
+                  Status:{' '}
+                  <ThemedText
+                    style={[
+                      isLive && styles.statusLive,
+                      isFinished && styles.statusFinished,
+                    ]}>
+                    {m.status}
+                  </ThemedText>
+                </ThemedText>
+                {m.home_score !== null && m.away_score !== null ? (
+                  <ThemedText>
+                    Rezultat: {m.home_score} : {m.away_score}
+                  </ThemedText>
+                ) : null}
+              </ThemedView>
+            );
+          }}
+        />
+      ) : null}
+    </RefreshableScrollView>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
+  mutedLine: { opacity: 0.85, fontSize: 14 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -163,12 +148,12 @@ const styles = StyleSheet.create({
   refreshButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  refreshText: { color: '#0a7ea4', fontWeight: '600' },
+  refreshText: { color: ActionAccentHex, fontWeight: '600' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
@@ -179,8 +164,8 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 4,
   },
-  matchCardLive: { borderColor: '#0a7ea4', backgroundColor: '#eef7fb' },
+  matchCardLive: { borderColor: ActionAccentHex, backgroundColor: ActionAccentWash },
   matchCardFinished: { opacity: 0.6 },
-  statusLive: { color: '#0a7ea4', fontWeight: '700' },
+  statusLive: { color: ActionAccentHex, fontWeight: '700' },
   statusFinished: { color: '#666' },
 });

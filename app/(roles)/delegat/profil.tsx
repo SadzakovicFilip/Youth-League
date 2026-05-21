@@ -1,19 +1,24 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 export default function DelegatProfilScreen() {
   const border = useThemeColor({}, 'border');
   const accent = useThemeColor({}, 'accent');
 
+  useScreenPullRefresh(useCallback(() => Promise.resolve(), []));
+
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Pressable style={[styles.back, { borderColor: border }]} onPress={() => router.back()}>
           <ThemedText type="defaultSemiBold">← Nazad</ThemedText>
         </Pressable>
@@ -30,7 +35,7 @@ export default function DelegatProfilScreen() {
             Prigovore na zapisnik obradjujes na ekranu pojedinacne utakmice nakon sto se zavrsi mec.
           </ThemedText>
         </ThemedView>
-      </ScrollView>
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }

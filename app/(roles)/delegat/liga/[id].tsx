@@ -1,14 +1,23 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActionAccentHex } from "@/constants/theme";
+import * as DocumentPicker from "expo-document-picker";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
-import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { sanitizeUsername } from '@/lib/auth';
-import { pickLicensePdf, saveUserLicense, uploadLicensePdf } from '@/lib/license-upload';
-import { supabase } from '@/lib/supabase';
+import { LicenseValidUntilField } from "@/components/license-valid-until-field";
+import { ConfirmRemoveIconButton } from "@/components/confirm-remove-icon-button";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedTextInput } from "@/components/themed-text-input";
+import { ThemedView } from "@/components/themed-view";
+import { sanitizeUsername } from "@/lib/auth";
+import {
+  pickLicensePdf,
+  saveUserLicense,
+  uploadLicensePdf,
+} from "@/lib/license-upload";
+import { supabase } from "@/lib/supabase";
 
 type League = { id: number; name: string; region_id: number | null };
 type Group = { id: number; league_id: number; name: string };
@@ -26,40 +35,58 @@ export default function DelegatLigaDetailScreen() {
   const leagueId = Number(id);
 
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
   const [league, setLeague] = useState<League | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [sudije, setSudije] = useState<Sudija[]>([]);
 
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+
   // add sudija form
   const [showForm, setShowForm] = useState(false);
-  const [sUsername, setSUsername] = useState('');
-  const [sPassword, setSPassword] = useState('');
-  const [sFirstName, setSFirstName] = useState('');
-  const [sLastName, setSLastName] = useState('');
-  const [sPhone, setSPhone] = useState('');
-  const [sLicenseNumber, setSLicenseNumber] = useState('');
-  const [sLicenseValidUntil, setSLicenseValidUntil] = useState('');
-  const [sPickedFile, setSPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [sUsername, setSUsername] = useState("");
+  const [sPassword, setSPassword] = useState("");
+  const [sFirstName, setSFirstName] = useState("");
+  const [sLastName, setSLastName] = useState("");
+  const [sPhone, setSPhone] = useState("");
+  const [sLicenseNumber, setSLicenseNumber] = useState("");
+  const [sLicenseValidUntil, setSLicenseValidUntil] = useState("");
+  const [sPickedFile, setSPickedFile] =
+    useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     if (!Number.isFinite(leagueId)) {
-      setErrorMessage('Nevazeca liga.');
+      setErrorMessage("Nevazeca liga.");
       setLoading(false);
       return;
     }
     setLoading(true);
-    setErrorMessage('');
+    setErrorMessage("");
 
     const [lRes, gRes, sRes] = await Promise.all([
-      supabase.from('leagues').select('id, name, region_id').eq('id', leagueId).maybeSingle(),
-      supabase.from('league_groups').select('id, league_id, name').eq('league_id', leagueId).order('name'),
-      supabase.rpc('get_league_sudije', { p_league_id: leagueId }),
+      supabase
+        .from("leagues")
+        .select("id, name, region_id")
+        .eq("id", leagueId)
+        .maybeSingle(),
+      supabase
+        .from("league_groups")
+        .select("id, league_id, name")
+        .eq("league_id", leagueId)
+        .order("name"),
+      supabase.rpc("get_league_sudije", { p_league_id: leagueId }),
     ]);
 
     if (lRes.error || gRes.error || sRes.error) {
-      setErrorMessage(lRes.error?.message || gRes.error?.message || sRes.error?.message || 'Greska pri ucitavanju.');
+      setErrorMessage(
+        lRes.error?.message ||
+          gRes.error?.message ||
+          sRes.error?.message ||
+          "Greska pri ucitavanju.",
+      );
       setLoading(false);
       return;
     }
@@ -70,45 +97,70 @@ export default function DelegatLigaDetailScreen() {
     setLoading(false);
   }, [leagueId]);
 
+  const onCreateGroup = async () => {
+    if (!newGroupName.trim()) {
+      setErrorMessage("Naziv grupe je obavezan.");
+      return;
+    }
+    setGroupSubmitting(true);
+    setErrorMessage("");
+    const { error } = await supabase.from("league_groups").insert({
+      league_id: leagueId,
+      name: newGroupName.trim(),
+    });
+    setGroupSubmitting(false);
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setNewGroupName("");
+    setShowGroupForm(false);
+    await load();
+  };
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
   const onCreateSudija = async () => {
     if (!sUsername.trim() || !sPassword.trim()) {
-      setErrorMessage('Username i password sudije su obavezni.');
+      setErrorMessage("Username i password sudije su obavezni.");
       return;
     }
     const safeUsername = sanitizeUsername(sUsername);
     if (!safeUsername) {
-      setErrorMessage('Username mora sadrzati slova/brojeve.');
+      setErrorMessage("Username mora sadrzati slova/brojeve.");
       return;
     }
 
     setSubmitting(true);
-    setErrorMessage('');
+    setErrorMessage("");
 
-    const { data: created, error: fnErr } = await supabase.functions.invoke('create-managed-user', {
-      body: {
-        role: 'sudija',
-        username: safeUsername,
-        password: sPassword,
-        display_name: [sFirstName, sLastName].filter(Boolean).join(' ') || safeUsername,
-        first_name: sFirstName || undefined,
-        last_name: sLastName || undefined,
-        phone: sPhone || undefined,
+    const { data: created, error: fnErr } = await supabase.functions.invoke(
+      "create-managed-user",
+      {
+        body: {
+          role: "sudija",
+          username: safeUsername,
+          password: sPassword,
+          display_name:
+            [sFirstName, sLastName].filter(Boolean).join(" ") || safeUsername,
+          first_name: sFirstName || undefined,
+          last_name: sLastName || undefined,
+          phone: sPhone || undefined,
+        },
       },
-    });
+    );
 
     if (fnErr) {
-      let raw = '';
+      let raw = "";
       try {
         const text = await fnErr.context?.text?.();
-        raw = text ? ` | RAW: ${text}` : '';
+        raw = text ? ` | RAW: ${text}` : "";
       } catch {
-        raw = '';
+        raw = "";
       }
       setErrorMessage(`Sudija: ${fnErr.message}${raw}`);
       setSubmitting(false);
@@ -121,17 +173,19 @@ export default function DelegatLigaDetailScreen() {
       null;
 
     if (!newUserId) {
-      setErrorMessage('Sudija kreiran ali nije vracen user_id.');
+      setErrorMessage("Sudija kreiran ali nije vracen user_id.");
       setSubmitting(false);
       return;
     }
 
     const { error: linkErr } = await supabase
-      .from('league_sudije')
+      .from("league_sudije")
       .insert({ league_id: leagueId, user_id: newUserId });
 
     if (linkErr) {
-      setErrorMessage(`Sudija kreiran, ali nije vezan za ligu: ${linkErr.message}`);
+      setErrorMessage(
+        `Sudija kreiran, ali nije vezan za ligu: ${linkErr.message}`,
+      );
       setSubmitting(false);
       return;
     }
@@ -141,9 +195,14 @@ export default function DelegatLigaDetailScreen() {
     if (sPickedFile || trimmedNumber || trimmedValidUntil) {
       let licensePath: string | null = null;
       if (sPickedFile) {
-        const { path, error: upErr } = await uploadLicensePdf(newUserId, sPickedFile);
+        const { path, error: upErr } = await uploadLicensePdf(
+          newUserId,
+          sPickedFile,
+        );
         if (upErr) {
-          setErrorMessage(`Sudija kreiran, ali licenca nije snimljena: ${upErr}`);
+          setErrorMessage(
+            `Sudija kreiran, ali licenca nije snimljena: ${upErr}`,
+          );
           setSubmitting(false);
           await load();
           return;
@@ -157,20 +216,22 @@ export default function DelegatLigaDetailScreen() {
         licenseNumber: trimmedNumber,
       });
       if (licErr) {
-        setErrorMessage(`Sudija kreiran, ali licenca nije snimljena: ${licErr}`);
+        setErrorMessage(
+          `Sudija kreiran, ali licenca nije snimljena: ${licErr}`,
+        );
         setSubmitting(false);
         await load();
         return;
       }
     }
 
-    setSUsername('');
-    setSPassword('');
-    setSFirstName('');
-    setSLastName('');
-    setSPhone('');
-    setSLicenseNumber('');
-    setSLicenseValidUntil('');
+    setSUsername("");
+    setSPassword("");
+    setSFirstName("");
+    setSLastName("");
+    setSPhone("");
+    setSLicenseNumber("");
+    setSLicenseValidUntil("");
     setSPickedFile(null);
     setShowForm(false);
     setSubmitting(false);
@@ -184,10 +245,10 @@ export default function DelegatLigaDetailScreen() {
 
   const onRemoveSudija = async (userId: string) => {
     const { error } = await supabase
-      .from('league_sudije')
+      .from("league_sudije")
       .delete()
-      .eq('league_id', leagueId)
-      .eq('user_id', userId);
+      .eq("league_id", leagueId)
+      .eq("user_id", userId);
     if (error) {
       setErrorMessage(`Uklanjanje sudije: ${error.message}`);
       return;
@@ -195,13 +256,18 @@ export default function DelegatLigaDetailScreen() {
     await load();
   };
 
+  useScreenPullRefresh(load);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
+      <Pressable style={styles.backButton} onPress={() => router.push("/delegat")}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
-      <ThemedText type="title">{league?.name ?? 'Liga'}</ThemedText>
-      <ThemedText>Provera dokumentacije, sudije i raspored utakmica.</ThemedText>
+      <ThemedText type="title">{league?.name ?? "Liga"}</ThemedText>
+      <ThemedText>
+        Dodavanje grupa i sudija. Raspored mečeva i takmičenje su na donjim tabovima (Upravljaj utakmicama /
+        Takmičenje).
+      </ThemedText>
 
       {loading ? <ActivityIndicator /> : null}
 
@@ -212,16 +278,58 @@ export default function DelegatLigaDetailScreen() {
       ) : null}
 
       {/* GRUPE */}
-      <ThemedText type="subtitle" style={styles.sectionTitle}>
-        Grupe u ligi ({groups.length})
-      </ThemedText>
+      <ThemedView style={styles.sectionHeader}>
+        <ThemedText type="subtitle">Grupe ({groups.length})</ThemedText>
+        <Pressable
+          style={styles.smallButton}
+          onPress={() => {
+            if (showGroupForm) {
+              setShowGroupForm(false);
+              setNewGroupName("");
+              setErrorMessage("");
+            } else {
+              setErrorMessage("");
+              setShowForm(false);
+              setShowGroupForm(true);
+            }
+          }}>
+          <ThemedText style={styles.smallButtonText}>{showGroupForm ? "Zatvori" : "Dodaj"}</ThemedText>
+        </Pressable>
+      </ThemedView>
+
+      {showGroupForm ? (
+        <ThemedView style={styles.card}>
+          <ThemedText type="defaultSemiBold">Nova grupa</ThemedText>
+          <ThemedTextInput
+            value={newGroupName}
+            onChangeText={setNewGroupName}
+            placeholder="Naziv grupe (A, B, Play-off)"
+            style={styles.inputSpacing}
+          />
+          <Pressable
+            style={[styles.button, groupSubmitting && styles.buttonDisabled]}
+            onPress={onCreateGroup}
+            disabled={groupSubmitting}>
+            {groupSubmitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.buttonText}>Kreiraj grupu</ThemedText>
+            )}
+          </Pressable>
+        </ThemedView>
+      ) : null}
+
       {groups.length === 0 ? (
         <ThemedView style={styles.card}>
           <ThemedText>Nema grupa u ligi.</ThemedText>
         </ThemedView>
       ) : null}
       {groups.map((g) => (
-        <Pressable key={g.id} style={styles.groupCard} onPress={() => router.push(`/delegat/grupa/${g.id}`)}>
+        <Pressable
+          key={g.id}
+          style={styles.groupCard}
+          onPress={() => router.push(`/delegat/grupa/${g.id}`)}
+        >
           <ThemedText type="defaultSemiBold">{g.name}</ThemedText>
           <ThemedText style={styles.hint}>Otvori ▸</ThemedText>
         </Pressable>
@@ -230,81 +338,86 @@ export default function DelegatLigaDetailScreen() {
       {/* SUDIJE */}
       <ThemedView style={styles.sectionHeader}>
         <ThemedText type="subtitle">Sudije ({sudije.length})</ThemedText>
-        <Pressable style={styles.smallButton} onPress={() => setShowForm((v) => !v)}>
-          <ThemedText style={styles.smallButtonText}>
-            {showForm ? 'Zatvori' : '+ Dodaj sudiju'}
-          </ThemedText>
+        <Pressable
+          style={styles.smallButton}
+          onPress={() => {
+            if (showForm) {
+              setShowForm(false);
+              setErrorMessage("");
+            } else {
+              setErrorMessage("");
+              setShowGroupForm(false);
+              setNewGroupName("");
+              setShowForm(true);
+            }
+          }}>
+          <ThemedText style={styles.smallButtonText}>{showForm ? "Zatvori" : "Dodaj"}</ThemedText>
         </Pressable>
       </ThemedView>
 
       {showForm ? (
         <ThemedView style={styles.card}>
           <ThemedText type="defaultSemiBold">Nalog sudije</ThemedText>
-          <TextInput
+          <ThemedTextInput
             value={sUsername}
             onChangeText={setSUsername}
             placeholder="Username (npr. sudija.petrovic)"
-            placeholderTextColor="#888"
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
-            style={styles.input}
+            style={styles.inputSpacing}
           />
-          <TextInput
+          <ThemedTextInput
             value={sPassword}
             onChangeText={setSPassword}
             placeholder="Password"
-            placeholderTextColor="#888"
             secureTextEntry
-            style={styles.input}
+            style={styles.inputSpacing}
           />
-          <TextInput
+          <ThemedTextInput
             value={sFirstName}
             onChangeText={setSFirstName}
             placeholder="Ime"
-            placeholderTextColor="#888"
-            style={styles.input}
+            style={styles.inputSpacing}
           />
-          <TextInput
+          <ThemedTextInput
             value={sLastName}
             onChangeText={setSLastName}
             placeholder="Prezime"
-            placeholderTextColor="#888"
-            style={styles.input}
+            style={styles.inputSpacing}
           />
-          <TextInput
+          <ThemedTextInput
             value={sPhone}
             onChangeText={setSPhone}
             placeholder="Telefon"
-            placeholderTextColor="#888"
-            style={styles.input}
+            style={styles.inputSpacing}
           />
 
-          <ThemedText type="defaultSemiBold" style={styles.subSection}>Licenca (opciono)</ThemedText>
-          <TextInput
+          <ThemedText type="defaultSemiBold" style={styles.subSection}>
+            Licenca (opciono)
+          </ThemedText>
+          <ThemedTextInput
             value={sLicenseNumber}
             onChangeText={setSLicenseNumber}
             placeholder="Broj licence"
-            placeholderTextColor="#888"
-            style={styles.input}
+            style={styles.inputSpacing}
           />
-          <TextInput
+          <LicenseValidUntilField
             value={sLicenseValidUntil}
-            onChangeText={setSLicenseValidUntil}
-            placeholder="Vazi do (YYYY-MM-DD)"
-            placeholderTextColor="#888"
-            style={styles.input}
+            onChange={setSLicenseValidUntil}
+            style={styles.inputSpacing}
           />
           <Pressable style={styles.smallButton} onPress={onPickSudijaPdf}>
             <ThemedText style={styles.smallButtonText}>
-              {sPickedFile ? `PDF: ${sPickedFile.name}` : 'Izaberi PDF licencu'}
+              {sPickedFile ? `PDF: ${sPickedFile.name}` : "Izaberi PDF licencu"}
             </ThemedText>
           </Pressable>
 
           <Pressable
             style={[styles.button, submitting && styles.buttonDisabled]}
             onPress={onCreateSudija}
-            disabled={submitting}>
+            disabled={submitting}
+          >
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
@@ -314,109 +427,102 @@ export default function DelegatLigaDetailScreen() {
         </ThemedView>
       ) : null}
 
-      {sudije.map((s) => (
+      {sudije.map((s) => {
+        const sLabel =
+          s.display_name ||
+          [s.first_name, s.last_name].filter(Boolean).join(" ").trim() ||
+          s.username ||
+          "korisnik";
+        return (
         <Pressable
           key={s.user_id}
           style={styles.card}
-          onPress={() => router.push(`/delegat/sudija/${s.user_id}`)}>
+          onPress={() => router.push(`/delegat/sudija/${s.user_id}`)}
+        >
           <ThemedView style={styles.rowBetween}>
             <ThemedView style={{ flex: 1 }}>
               <ThemedText type="defaultSemiBold">
-                {s.display_name || [s.first_name, s.last_name].filter(Boolean).join(' ') || s.username || '-'}
+                {s.display_name ||
+                  [s.first_name, s.last_name].filter(Boolean).join(" ") ||
+                  s.username ||
+                  "-"}
               </ThemedText>
-              <ThemedText>@{s.username ?? '-'}</ThemedText>
+              <ThemedText>@{s.username ?? "-"}</ThemedText>
               {s.phone ? <ThemedText>Tel: {s.phone}</ThemedText> : null}
-              <ThemedText style={styles.hint}>Otvori profil i licencu ▸</ThemedText>
+              <ThemedText style={styles.hint}>
+                Otvori profil i licencu ▸
+              </ThemedText>
             </ThemedView>
-            <Pressable style={styles.removeButton} onPress={() => onRemoveSudija(s.user_id)}>
-              <ThemedText style={styles.removeButtonText}>Ukloni</ThemedText>
-            </Pressable>
+            <ConfirmRemoveIconButton
+              title="Ukloni sudiju sa lige"
+              message={`${sLabel} više neće biti dodeljen ovoj ligi. Nastaviti?`}
+              onConfirm={() => onRemoveSudija(s.user_id)}
+            />
           </ThemedView>
         </Pressable>
-      ))}
+      );
+      })}
 
-      {/* UTAKMICE -> raspored */}
-      <Pressable style={styles.primaryButton} onPress={() => router.push(`/delegat/utakmice/${leagueId}`)}>
-        <ThemedText style={styles.primaryButtonText}>Raspored sudija za utakmice ▸</ThemedText>
-      </Pressable>
-
-      <ThemedView style={styles.divider} />
-      <LeagueCompetitionView
-        leagueId={leagueId}
-        onOpenPlayer={(uid) => router.push(`/delegat/korisnik/${uid}`)}
-        onOpenClub={(cid) => router.push(`/delegat/klub/${cid}`)}
-      />
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
   backButton: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: "#999",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  backText: { fontWeight: '600' },
-  sectionTitle: { marginTop: 8 },
+  backText: { fontWeight: "600" },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 8,
   },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
-  groupCard: { borderWidth: 1, borderColor: '#0a7ea4', borderRadius: 8, padding: 10, gap: 4 },
-  errorText: { color: '#c53939' },
-  hint: { color: '#0a7ea4', fontWeight: '600' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: '#111',
-    backgroundColor: '#fff',
+  rowBetween: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
+  card: {
+    borderWidth: 1,
+    borderColor: "#666",
+    borderRadius: 8,
+    padding: 10,
+    gap: 6,
+  },
+  groupCard: {
+    borderWidth: 1,
+    borderColor: ActionAccentHex,
+    borderRadius: 8,
+    padding: 10,
+    gap: 4,
+  },
+  errorText: { color: "#c53939" },
+  hint: { color: ActionAccentHex, fontWeight: "600" },
+  inputSpacing: { marginTop: 6 },
   button: {
     marginTop: 6,
     minHeight: 40,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: ActionAccentHex,
   },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
+  buttonText: { color: "#fff", fontWeight: "600" },
   smallButton: {
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  smallButtonText: { color: '#0a7ea4', fontWeight: '600' },
+  smallButtonText: { color: ActionAccentHex, fontWeight: "600" },
   subSection: { marginTop: 6 },
-  removeButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  removeButtonText: { color: '#c53939', fontWeight: '600' },
-  primaryButton: {
-    marginTop: 14,
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
-  },
-  primaryButtonText: { color: '#fff', fontWeight: '600' },
-  divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
 });

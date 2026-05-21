@@ -1,5 +1,21 @@
 /**
- * Href ka ekranu profila za ulogu iz trenutnog pathname-a (Expo Router).
+ * Prvi segment uloge iz URL-a (npr. `savez`, `delegat`), bez grupnih foldera `(roles)`.
+ * Za javne rute (`login`, `home`, …) vraća `null`.
+ */
+export function getAppRoleFromPathname(pathname: string): string | null {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  const segments = p.split('/').filter((s) => s.length > 0);
+  const cleaned = segments.filter((s) => !s.startsWith('('));
+  const first = cleaned[0];
+  if (!first) return null;
+  const publicRoots = new Set(['login', 'modal', 'home', 'explore']);
+  if (publicRoots.has(first)) return null;
+  return first;
+}
+
+/**
+ * @deprecated Koristi drawer (`AppDrawerProfilePanel`) umesto navigacije na profil.
+ * Ostaje za slučaj dubokih linkova ako zatreba.
  */
 export function resolveProfileHrefFromPathname(pathname: string): string | null {
   const p = pathname.replace(/\/+$/, '') || '/';

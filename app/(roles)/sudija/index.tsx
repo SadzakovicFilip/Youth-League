@@ -1,11 +1,13 @@
+import { router } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ScreenShell } from '@/components/screen-shell';
-import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { openLicensePdf } from '@/lib/license-viewer';
 import { supabase } from '@/lib/supabase';
 
 type CoSudija = {
@@ -65,13 +67,10 @@ type DashboardPayload = {
   matches: MatchRow[];
 };
 
-type TabKey = 'profile' | 'matches';
-
 export default function SudijaHomeScreen() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<TabKey>('profile');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,33 +91,23 @@ export default function SudijaHomeScreen() {
     load();
   }, [load]);
 
-  const profile = data?.profile;
-  const license = data?.license;
-  const leagues = data?.leagues ?? [];
   const matches = data?.matches ?? [];
+
+  useScreenPullRefresh(load);
 
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Sudija Dashboard</ThemedText>
       </ThemedView>
       <ThemedText style={styles.subtitle}>
-        Pregled profila i rasporeda utakmica koje su ti dodeljene.
+        Raspored utakmica koje su ti dodeljene. Profil i licenca su u bočnom meniju.
       </ThemedText>
 
       <Pressable style={styles.refreshButton} onPress={load}>
         <ThemedText style={styles.refreshText}>Refresh</ThemedText>
       </Pressable>
-
-      <ThemedView style={styles.tabRow}>
-        <TabButton label="Profil" active={activeTab === 'profile'} onPress={() => setActiveTab('profile')} />
-        <TabButton
-          label={`Utakmice (${matches.length})`}
-          active={activeTab === 'matches'}
-          onPress={() => setActiveTab('matches')}
-        />
-      </ThemedView>
 
       {loading ? (
         <ThemedView style={styles.card}>
@@ -132,94 +121,48 @@ export default function SudijaHomeScreen() {
         </ThemedView>
       ) : null}
 
-      {!loading && activeTab === 'profile' ? (
-        <>
-          <ThemeProfileToggle />
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Licni podaci</ThemedText>
-            <ThemedText>
-              Ime i prezime:{' '}
-              {profile?.display_name ||
-                [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
-                '-'}
-            </ThemedText>
-            <ThemedText>Username: {profile?.username ?? '-'}</ThemedText>
-            <ThemedText>Datum rodjenja: {profile?.birth_date ?? '-'}</ThemedText>
-            <ThemedText>Adresa: {profile?.address ?? '-'}</ThemedText>
-            <ThemedText>Telefon: {profile?.phone ?? '-'}</ThemedText>
-          </ThemedView>
-
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Lige ({leagues.length})</ThemedText>
-            {leagues.length === 0 ? (
-              <ThemedText style={styles.muted}>Nisi jos dodeljen nijednoj ligi.</ThemedText>
-            ) : null}
-            {leagues.map((l) => (
-              <ThemedText key={l.league_id}>
-                {l.league_name ?? `Liga #${l.league_id}`}
-                {l.region_name ? `  •  ${l.region_name}` : ''}
-              </ThemedText>
-            ))}
-          </ThemedView>
-
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Licenca</ThemedText>
-            <ThemedText>Broj licence: {license?.license_number ?? '-'}</ThemedText>
-            <ThemedText>Vazi do: {license?.license_valid_until ?? '-'}</ThemedText>
-            <ThemedText>Fajl: {license?.license_file_path ?? '-'}</ThemedText>
-            {license?.license_file_path ? (
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => openLicensePdf(license.license_file_path)}>
-                <ThemedText style={styles.primaryButtonText}>Otvori PDF</ThemedText>
-              </Pressable>
-            ) : (
-              <ThemedText style={styles.muted}>
-                PDF licenca nije uploadovana. Licencu dodaje delegat lige ili savez.
-              </ThemedText>
-            )}
-          </ThemedView>
-        </>
-      ) : null}
-
-      {!loading && activeTab === 'matches' ? (
+      {!loading ? (
         <>
           {matches.length === 0 ? (
             <ThemedView style={styles.card}>
               <ThemedText>Nema dodeljenih utakmica.</ThemedText>
             </ThemedView>
-          ) : null}
-
-          {matches.map((m) => {
-            const co = m.co_sudije[0];
-            const coLabel = co
-              ? co.display_name ||
-                [co.first_name, co.last_name].filter(Boolean).join(' ') ||
-                co.username ||
-                '-'
-              : null;
-            return (
-              <ThemedView key={m.id} style={styles.matchCard}>
-                <ThemedText type="defaultSemiBold">
-                  {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
-                </ThemedText>
-                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                {m.league_name ? <ThemedText>Liga: {m.league_name}</ThemedText> : null}
-                {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
-                {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                <ThemedText>Status: {m.status}</ThemedText>
-                {m.home_score !== null && m.away_score !== null ? (
-                  <ThemedText>
-                    Rezultat: {m.home_score} - {m.away_score}
-                  </ThemedText>
-                ) : null}
-                <ThemedText style={styles.muted}>Kolega: {coLabel ?? 'jos nije dodeljen'}</ThemedText>
-              </ThemedView>
-            );
-          })}
+          ) : (
+            <MatchTimetableCalendar
+              matches={matches}
+              onMatchPress={(m) => router.push(`/sudija/utakmica/${m.id}` as never)}
+              renderMatch={(m) => {
+                const co = m.co_sudije[0];
+                const coLabel = co
+                  ? co.display_name ||
+                    [co.first_name, co.last_name].filter(Boolean).join(' ') ||
+                    co.username ||
+                    '-'
+                  : null;
+                return (
+                  <ThemedView style={styles.matchCard}>
+                    <ThemedText type="defaultSemiBold">
+                      {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
+                    </ThemedText>
+                    <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                    {m.league_name ? <ThemedText>Liga: {m.league_name}</ThemedText> : null}
+                    {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
+                    {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                    <ThemedText>Status: {m.status}</ThemedText>
+                    {m.home_score !== null && m.away_score !== null ? (
+                      <ThemedText>
+                        Rezultat: {m.home_score} - {m.away_score}
+                      </ThemedText>
+                    ) : null}
+                    <ThemedText style={styles.muted}>Kolega: {coLabel ?? 'jos nije dodeljen'}</ThemedText>
+                  </ThemedView>
+                );
+              }}
+            />
+          )}
         </>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
     </ScreenShell>
   );
 }
@@ -235,20 +178,6 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
-type TabButtonProps = {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-};
-
-function TabButton({ label, active, onPress }: TabButtonProps) {
-  return (
-    <Pressable onPress={onPress} style={[styles.tabButton, active && styles.tabButtonActive]}>
-      <ThemedText style={active ? styles.tabButtonActiveText : undefined}>{label}</ThemedText>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 32 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -262,26 +191,8 @@ const styles = StyleSheet.create({
     minHeight: 40,
   },
   refreshText: { fontWeight: '600' },
-  tabRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tabButton: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  tabButtonActive: { backgroundColor: '#0a7ea4', borderColor: '#0a7ea4' },
-  tabButtonActiveText: { color: '#fff' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
   matchCard: { borderWidth: 1, borderColor: '#666', borderRadius: 10, padding: 12, gap: 4 },
   muted: { color: '#666', fontStyle: 'italic' },
   errorText: { color: '#c53939' },
-  primaryButton: {
-    minHeight: 44,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
-  },
-  primaryButtonText: { color: '#fff', fontWeight: '600' },
 });

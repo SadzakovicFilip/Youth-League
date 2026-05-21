@@ -1,3 +1,4 @@
+import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -325,7 +326,7 @@ function RosterList({
                 />
                 <ScoreBtn
                   label="+2"
-                  color="#0a7ea4"
+                  color={ActionAccentHex}
                   disabled={!canScore || busyKey === `${p.user_id}-field`}
                   busy={busyKey === `${p.user_id}-field`}
                   onPress={() => onEvent(p.user_id, 'field')}
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 2,
   },
-  headerCardLive: { borderColor: '#0a7ea4', backgroundColor: '#eef7fb' },
+  headerCardLive: { borderColor: ActionAccentHex, backgroundColor: ActionAccentWash },
   headerCardFinished: { borderColor: '#888', backgroundColor: '#f1f1f1' },
   undoButton: {
     marginTop: 6,
@@ -452,7 +453,7 @@ const styles = StyleSheet.create({
   },
   matchTitle: { fontSize: 14, textAlign: 'center' },
   statusLine: { textAlign: 'center', fontSize: 12 },
-  statusLive: { color: '#0a7ea4', fontWeight: '700' },
+  statusLive: { color: ActionAccentHex, fontWeight: '700' },
   statusFinished: { color: '#666' },
   teamBar: {
     paddingVertical: 4,

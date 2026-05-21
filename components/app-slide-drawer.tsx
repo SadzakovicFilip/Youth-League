@@ -1,5 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
-import { router, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import {
   Animated,
@@ -7,24 +5,22 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppDrawerProfilePanel } from '@/components/app-drawer-profile-panel';
 import { useAppDrawer } from '@/contexts/app-drawer-context';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { resolveProfileHrefFromPathname } from '@/lib/resolve-profile-href';
 
-const DRAWER_W = Math.min(300, Dimensions.get('window').width * 0.82);
+const DRAWER_W = Math.min(340, Dimensions.get('window').width * 0.88);
 
 export function AppSlideDrawer() {
   const { open, closeDrawer } = useAppDrawer();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const insets = useSafeAreaInsets();
-  const pathname = usePathname();
   const slide = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -40,15 +36,6 @@ export function AppSlideDrawer() {
     outputRange: [-DRAWER_W, 0],
   });
 
-  const profileHref = resolveProfileHrefFromPathname(pathname);
-
-  const goProfile = () => {
-    if (profileHref) {
-      closeDrawer();
-      router.push(profileHref as never);
-    }
-  };
-
   return (
     <Modal visible={open} animationType="none" transparent onRequestClose={closeDrawer}>
       <View style={styles.modalRoot}>
@@ -58,35 +45,25 @@ export function AppSlideDrawer() {
             styles.panel,
             {
               width: DRAWER_W,
-              paddingTop: insets.top + 12,
-              paddingBottom: insets.bottom + 16,
+              paddingTop: 0,
+              paddingBottom: 0,
+              paddingHorizontal: 0,
               backgroundColor: c.surface,
               borderRightColor: c.border,
               transform: [{ translateX }],
             },
           ]}>
-          <View style={styles.panelHeader}>
-            <Ionicons name="basketball" size={28} color={c.tint} />
-            <Text style={[styles.panelTitle, { color: c.text }]}>Meni</Text>
+          <View
+            style={[
+              styles.panelFill,
+              {
+                paddingTop: insets.top,
+                paddingBottom: insets.bottom + 8,
+                paddingHorizontal: 20,
+              },
+            ]}>
+            <AppDrawerProfilePanel open={open} />
           </View>
-          {profileHref ? (
-            <Pressable
-              onPress={goProfile}
-              style={[styles.row, { borderColor: c.border }]}
-              accessibilityRole="button"
-              accessibilityLabel="Profil">
-              <Ionicons name="person-circle-outline" size={22} color={c.tint} />
-              <Text style={[styles.rowLabel, { color: c.text }]}>Profil</Text>
-              <Ionicons name="chevron-forward" size={18} color={c.textMuted} />
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={closeDrawer}
-            style={[styles.rowMuted, { borderColor: c.border }]}
-            accessibilityRole="button">
-            <Ionicons name="close-circle-outline" size={22} color={c.textMuted} />
-            <Text style={[styles.rowLabel, { color: c.textSecondary }]}>Zatvori</Text>
-          </Pressable>
         </Animated.View>
       </View>
     </Modal>
@@ -108,41 +85,13 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRightWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     zIndex: 2,
     elevation: 8,
+    flexDirection: 'column',
   },
-  panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-  panelTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 10,
-  },
-  rowMuted: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginTop: 4,
-  },
-  rowLabel: {
+  panelFill: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
+    minHeight: 0,
   },
 });

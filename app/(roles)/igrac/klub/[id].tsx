@@ -9,8 +9,10 @@ export default function IgracKlubDetailScreen() {
   return (
     <ClubTeamView
       clubId={clubId}
-      onBack={() => router.back()}
-      onOpenUser={(userId) => router.push(`/igrac/korisnik/${userId}`)}
+      showMemberFees={false}
+      onOpenUser={(userId, cid) =>
+        router.push(`/igrac/korisnik/${userId}?clubId=${cid}` as never)
+      }
     />
   );
 }

@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { FlatList, Modal, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedView } from '@/components/themed-view';
 
 export type SelectOption = {
   value: string;
   label: string;
   sublabel?: string;
+  /** Nije birajući (npr. istekla licenca) — prikaz crvenim, onPress onemogućen. */
+  ineligible?: boolean;
 };
 
 export type SearchableSelectProps = {
@@ -18,6 +23,10 @@ export type SearchableSelectProps = {
   onChange: (value: string | null) => void;
   disabledValues?: string[];
   clearable?: boolean;
+  /** Naslov u modalu (ako nije prosleđen, koristi se `label`, pa „Izbor“). */
+  sheetTitle?: string;
+  /** Spoljašnji stil omotača (npr. flex: 1 u redu sa dresom). */
+  containerStyle?: StyleProp<ViewStyle>;
 };
 
 export function SearchableSelect({
@@ -28,7 +37,10 @@ export function SearchableSelect({
   onChange,
   disabledValues,
   clearable = true,
+  containerStyle,
+  sheetTitle,
 }: SearchableSelectProps) {
+  const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -47,12 +59,29 @@ export function SearchableSelect({
 
   const disabledSet = useMemo(() => new Set(disabledValues ?? []), [disabledValues]);
 
-  return (
-    <View style={styles.container}>
-      {label ? <ThemedText style={styles.label}>{label}</ThemedText> : null}
+  const closeModal = () => {
+    setOpen(false);
+    setQuery('');
+  };
 
-      <Pressable style={styles.trigger} onPress={() => setOpen(true)}>
-        <ThemedText numberOfLines={1} style={selected ? styles.triggerText : styles.triggerPlaceholder}>
+  return (
+    <View style={[styles.container, containerStyle]}>
+      {label ? (
+        <ThemedText style={[styles.label, { color: colors.textSecondary }]}>{label}</ThemedText>
+      ) : null}
+
+      <Pressable
+        style={[
+          styles.trigger,
+          { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder },
+        ]}
+        onPress={() => setOpen(true)}>
+        <ThemedText
+          numberOfLines={1}
+          style={[
+            styles.triggerLine,
+            { color: selected ? colors.text : colors.textMuted },
+          ]}>
           {selected ? selected.label : placeholder}
         </ThemedText>
         {clearable && selected ? (
@@ -62,30 +91,45 @@ export function SearchableSelect({
               e.stopPropagation();
               onChange(null);
             }}>
-            <ThemedText style={styles.clearX}>×</ThemedText>
+            <ThemedText style={[styles.clearX, { color: colors.danger }]}>×</ThemedText>
           </Pressable>
         ) : (
-          <ThemedText style={styles.chevron}>▾</ThemedText>
+          <ThemedText style={[styles.chevron, { color: colors.textSecondary }]}>▾</ThemedText>
         )}
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.backdrop}>
-          <ThemedView style={styles.modalCard}>
+      <Modal visible={open} animationType="slide" transparent onRequestClose={closeModal}>
+        <View style={styles.modalRoot}>
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, styles.dimmedBackdrop]}
+            onPress={closeModal}
+            accessibilityLabel="Zatvori listu"
+            accessibilityRole="button"
+          />
+          <View style={styles.sheetWrap} pointerEvents="box-none">
+            <ThemedView style={[styles.modalCard, { backgroundColor: colors.surface, borderTopColor: colors.borderStrong }]}>
             <ThemedView style={styles.modalHeader}>
-              <ThemedText type="subtitle">{label ?? 'Izbor'}</ThemedText>
-              <Pressable onPress={() => setOpen(false)}>
-                <ThemedText style={styles.close}>Zatvori</ThemedText>
+              <ThemedText type="subtitle" style={{ color: colors.text }}>
+                {sheetTitle ?? label ?? 'Izbor'}
+              </ThemedText>
+              <Pressable onPress={closeModal}>
+                <ThemedText style={[styles.close, { color: ActionAccentHex }]}>Zatvori</ThemedText>
               </Pressable>
             </ThemedView>
 
-            <TextInput
+            <ThemedTextInput
               value={query}
               onChangeText={setQuery}
               placeholder="Pretraga..."
-              placeholderTextColor="#888"
               autoCapitalize="none"
-              style={styles.search}
+              style={[
+                styles.search,
+                {
+                  backgroundColor: colors.inputBackground,
+                  borderColor: colors.inputBorder,
+                  color: colors.text,
+                },
+              ]}
             />
 
             <FlatList
@@ -93,32 +137,69 @@ export function SearchableSelect({
               keyExtractor={(item) => item.value}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
-                <ThemedText style={styles.empty}>Nema rezultata.</ThemedText>
+                <ThemedText style={[styles.empty, { color: colors.textMuted }]}>Nema rezultata.</ThemedText>
               }
               renderItem={({ item }) => {
-                const isDisabled = disabledSet.has(item.value) && item.value !== value;
+                const takenElsewhere = disabledSet.has(item.value) && item.value !== value;
+                const isDisabled = takenElsewhere || !!item.ineligible;
                 const isSelected = item.value === value;
                 return (
                   <Pressable
                     disabled={isDisabled}
                     onPress={() => {
                       onChange(item.value);
-                      setOpen(false);
-                      setQuery('');
+                      closeModal();
                     }}
                     style={[
                       styles.item,
-                      isSelected && styles.itemSelected,
-                      isDisabled && styles.itemDisabled,
+                      {
+                        backgroundColor: colors.surfaceMuted,
+                        borderColor: colors.border,
+                      },
+                      isSelected && {
+                        borderColor: ActionAccentHex,
+                        backgroundColor: ActionAccentWash,
+                      },
+                      takenElsewhere && !item.ineligible && styles.itemDisabled,
+                      item.ineligible && {
+                        borderColor: colors.danger,
+                        backgroundColor: colors.surface,
+                      },
                     ]}>
-                    <ThemedText type="defaultSemiBold">{item.label}</ThemedText>
-                    {item.sublabel ? <ThemedText style={styles.sublabel}>{item.sublabel}</ThemedText> : null}
-                    {isDisabled ? <ThemedText style={styles.badge}>vec izabran</ThemedText> : null}
+                    <ThemedText
+                      type="defaultSemiBold"
+                      style={{
+                        color: item.ineligible ? colors.danger : colors.text,
+                      }}>
+                      {item.label}
+                    </ThemedText>
+                    {item.sublabel ? (
+                      <ThemedText
+                        style={[
+                          styles.sublabel,
+                          {
+                            color: item.ineligible ? colors.danger : colors.textSecondary,
+                          },
+                        ]}>
+                        {item.sublabel}
+                      </ThemedText>
+                    ) : null}
+                    {takenElsewhere && !item.ineligible ? (
+                      <ThemedText style={[styles.badge, { color: colors.textMuted }]}>
+                        već izabran za drugi broj
+                      </ThemedText>
+                    ) : null}
+                    {item.ineligible ? (
+                      <ThemedText style={[styles.badge, { color: colors.danger, fontWeight: '700' }]}>
+                        Nije birajući — licenca
+                      </ThemedText>
+                    ) : null}
                   </Pressable>
                 );
               }}
             />
-          </ThemedView>
+            </ThemedView>
+          </View>
         </View>
       </Modal>
     </View>
@@ -127,31 +208,30 @@ export function SearchableSelect({
 
 const styles = StyleSheet.create({
   container: { gap: 4, flex: 1 },
-  label: { fontSize: 12, opacity: 0.8 },
+  label: { fontSize: 12, fontWeight: '600' },
   trigger: {
     minHeight: 40,
     borderWidth: 1,
-    borderColor: '#666',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
   },
-  triggerText: { color: '#111', flex: 1, marginRight: 6 },
-  triggerPlaceholder: { color: '#888', flex: 1, marginRight: 6 },
-  chevron: { color: '#666' },
-  clearX: { color: '#c53939', fontSize: 22, lineHeight: 22, paddingHorizontal: 4 },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+  triggerLine: { flex: 1, marginRight: 6, fontSize: 15 },
+  chevron: { fontSize: 14 },
+  clearX: { fontSize: 22, lineHeight: 22, paddingHorizontal: 4 },
+  modalRoot: { flex: 1 },
+  dimmedBackdrop: { backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheetWrap: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
   modalCard: {
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
     maxHeight: '85%',
     padding: 14,
     gap: 10,
@@ -161,28 +241,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  close: { color: '#0a7ea4', fontWeight: '600' },
+  close: { fontWeight: '600' },
   search: {
     borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: '#111',
-    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
   },
   item: {
     borderWidth: 1,
-    borderColor: '#ccc',
     borderRadius: 8,
-    padding: 10,
+    padding: 12,
     marginBottom: 6,
-    backgroundColor: '#fff',
-    gap: 2,
+    gap: 4,
   },
-  itemSelected: { borderColor: '#0a7ea4', backgroundColor: '#e7f4fb' },
-  itemDisabled: { opacity: 0.5 },
-  sublabel: { color: '#555', fontSize: 12 },
-  badge: { color: '#999', fontSize: 11, fontStyle: 'italic' },
-  empty: { textAlign: 'center', padding: 20, color: '#888' },
+  itemDisabled: { opacity: 0.45 },
+  sublabel: { fontSize: 13 },
+  badge: { fontSize: 11, fontStyle: 'italic' },
+  empty: { textAlign: 'center', padding: 20, fontSize: 15 },
 });

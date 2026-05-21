@@ -1,10 +1,13 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { openLicensePdf } from '@/lib/license-viewer';
 import { supabase } from '@/lib/supabase';
 
@@ -104,9 +107,11 @@ export default function SavezKorisniciScreen() {
     }, [loadUsers])
   );
 
+  useScreenPullRefresh(loadUsers);
+
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <ThemedText type="title">Korisnici</ThemedText>
         <ThemedText>Korisnici koje je kreirao trenutno ulogovani savez.</ThemedText>
 
@@ -149,7 +154,7 @@ export default function SavezKorisniciScreen() {
             </ThemedView>
           );
         })}
-      </ScrollView>
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }
@@ -162,7 +167,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
+    backgroundColor: ActionAccentHex,
   },
   primaryButtonText: { color: '#fff', fontWeight: '600' },
   errorText: { color: '#c53939' },
@@ -170,10 +175,10 @@ const styles = StyleSheet.create({
   secondaryButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  secondaryButtonText: { color: '#0a7ea4', fontWeight: '600' },
+  secondaryButtonText: { color: ActionAccentHex, fontWeight: '600' },
 });

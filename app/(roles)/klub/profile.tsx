@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { router } from 'expo-router';
 
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { supabase } from '@/lib/supabase';
 
@@ -25,28 +27,31 @@ export default function KlubProfileScreen() {
   const border = useThemeColor({}, 'border');
   const danger = useThemeColor({}, 'danger');
 
-  useEffect(() => {
-    const loadProfile = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setErrorMessage('Nema aktivne sesije.');
-        return;
-      }
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('username, display_name, first_name, last_name, birth_date, address, phone')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setProfile(data);
-    };
-    loadProfile();
+  const loadProfile = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setErrorMessage('Nema aktivne sesije.');
+      return;
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('username, display_name, first_name, last_name, birth_date, address, phone')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setProfile(data);
   }, []);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  useScreenPullRefresh(loadProfile);
 
   const onLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -59,7 +64,7 @@ export default function KlubProfileScreen() {
 
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <ThemedText type="title">Klub profil</ThemedText>
 
         <ThemeProfileToggle />
@@ -85,7 +90,7 @@ export default function KlubProfileScreen() {
         <Pressable style={[styles.logoutButton, { borderColor: danger }]} onPress={onLogout}>
           <ThemedText style={[styles.logoutText, { color: danger }]}>Logout</ThemedText>
         </Pressable>
-      </ScrollView>
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }

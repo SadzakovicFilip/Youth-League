@@ -16,6 +16,12 @@ export const BasketballAccent = {
   highlight: '#E8A077',
 } as const;
 
+/** Filled primary buttons, tabs, chips — ista porodica kao `tint` / lopta (zamena za bivši Expo plavi). */
+export const ActionAccentHex = BasketballAccent.leather;
+
+/** Blaga pozadina uz akcent (kartice, selektovani redovi). */
+export const ActionAccentWash = 'rgba(184, 92, 46, 0.12)';
+
 export const Colors = {
   light: {
     text: '#121212',
@@ -37,11 +43,14 @@ export const Colors = {
     danger: '#B3261E',
     success: '#2E7D32',
     link: BasketballAccent.leatherDeep,
-    inputBackground: '#FFFFFF',
-    inputBorder: '#D8D8D8',
+    /** Blago off-white da polja ne „biju“ uz crni tekst. */
+    inputBackground: '#EFEEEC',
+    inputBorder: '#D0CFCD',
     tabBar: '#FFFFFF',
     tabBarBorder: '#E8E8E8',
     overlayLine: 'rgba(18, 18, 18, 0.06)',
+    /** Prvi red tabele (klubovi / strelci) — blago odvojen od pozadine kartice. */
+    tableHeaderBackground: '#EBEBEB',
   },
   dark: {
     text: '#F2F2F2',
@@ -68,6 +77,7 @@ export const Colors = {
     tabBar: '#1E1E1E',
     tabBarBorder: '#333333',
     overlayLine: 'rgba(255, 255, 255, 0.05)',
+    tableHeaderBackground: '#2C2C2C',
   },
 };
 

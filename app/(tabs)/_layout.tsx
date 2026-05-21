@@ -59,7 +59,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        ...tabNavigatorChromeOptions(c),
+        ...tabNavigatorChromeOptions(c, { centerTitleForRoutes: new Set(['index', 'explore']) }),
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen

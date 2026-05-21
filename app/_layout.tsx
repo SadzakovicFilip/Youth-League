@@ -14,6 +14,7 @@ import { Colors } from "@/constants/theme";
 import { AppDrawerProvider } from "@/contexts/app-drawer-context";
 import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { AuthHeaderProvider } from "@/contexts/auth-header-context";
+import { ScreenPullRefreshProvider } from "@/contexts/screen-pull-refresh-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { applyFixedAndroidNavigationBar } from "@/lib/android-navigation-bar";
 
@@ -78,6 +79,7 @@ function RootNavigation() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(roles)" options={{ headerShown: false }} />
+        <Stack.Screen name="(shared)" options={{ headerShown: false }} />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}
@@ -92,6 +94,7 @@ export default function RootLayout() {
     <SafeAreaProvider initialMetrics={initialWindowMetrics ?? undefined}>
       <AppThemeProvider>
         <AuthHeaderProvider>
+          <ScreenPullRefreshProvider>
           <AppDrawerProvider>
             <>
               <RootSafeAreaFrame>
@@ -100,6 +103,7 @@ export default function RootLayout() {
               <AppSlideDrawer />
             </>
           </AppDrawerProvider>
+          </ScreenPullRefreshProvider>
         </AuthHeaderProvider>
       </AppThemeProvider>
     </SafeAreaProvider>

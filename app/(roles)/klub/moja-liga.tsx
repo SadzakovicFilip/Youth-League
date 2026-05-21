@@ -1,6 +1,9 @@
+import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
 import { router, useFocusEffect } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -66,8 +69,10 @@ export default function KlubMojaLigaScreen() {
     return Array.from(byLeague.values());
   }, [rows]);
 
+  useScreenPullRefresh(load);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
@@ -109,7 +114,7 @@ export default function KlubMojaLigaScreen() {
           ))}
         </ThemedView>
       ))}
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
@@ -127,15 +132,15 @@ const styles = StyleSheet.create({
   refreshButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  refreshText: { color: '#0a7ea4', fontWeight: '600' },
+  refreshText: { color: ActionAccentHex, fontWeight: '600' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 4 },
-  cardMine: { borderColor: '#0a7ea4', backgroundColor: '#eaf4f8' },
+  cardMine: { borderColor: ActionAccentHex, backgroundColor: ActionAccentWash },
   errorText: { color: '#c53939' },
-  hint: { color: '#0a7ea4', fontWeight: '600' },
+  hint: { color: ActionAccentHex, fontWeight: '600' },
   muted: { color: '#888', fontStyle: 'italic' },
 });

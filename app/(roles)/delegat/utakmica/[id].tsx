@@ -1,6 +1,9 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
@@ -73,6 +76,7 @@ type Payload = {
 
 function officialLabel(o: OfficialRef | null | undefined) {
   if (!o) return '—';
+
   return (
     o.display_name ||
     [o.first_name, o.last_name].filter(Boolean).join(' ') ||
@@ -120,6 +124,8 @@ export default function DelegatMatchDetailScreen() {
     setData(rpcData as Payload);
     setLoading(false);
   }, [matchId]);
+
+  useScreenPullRefresh(load);
 
   useFocusEffect(
     useCallback(() => {
@@ -174,7 +180,7 @@ export default function DelegatMatchDetailScreen() {
 
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
@@ -340,7 +346,7 @@ export default function DelegatMatchDetailScreen() {
           ) : null}
         </>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
     </ScreenShell>
   );
 }
@@ -369,7 +375,7 @@ const styles = StyleSheet.create({
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
   muted: { color: '#888' },
-  statusLive: { color: '#0a7ea4', fontWeight: '700' },
+  statusLive: { color: ActionAccentHex, fontWeight: '700' },
   statusFinished: { color: '#666' },
   condRow: {
     flexDirection: 'row',
@@ -385,7 +391,7 @@ const styles = StyleSheet.create({
   condLabel: { flex: 1 },
   primaryBtn: {
     marginTop: 10,
-    backgroundColor: '#0a7ea4',
+    backgroundColor: ActionAccentHex,
     borderRadius: 8,
     minHeight: 48,
     alignItems: 'center',

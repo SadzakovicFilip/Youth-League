@@ -5,7 +5,7 @@ import { AppChromeHeader } from "@/components/app-chrome-header";
 import { Colors } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
-const TAB_LAYOUT_ROUTES = new Set(["trener", "klub", "savez"]);
+const TAB_LAYOUT_ROUTES = new Set(["trener", "klub", "savez", "delegat"]);
 
 function isTabLayoutStackScreen(routeName: string) {
   if (TAB_LAYOUT_ROUTES.has(routeName)) return true;

@@ -1,109 +1,106 @@
-import { Link } from 'expo-router';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActionAccentHex } from '@/constants/theme';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ScreenShell } from '@/components/screen-shell';
+import { TrenerTaktikeContent } from '@/components/trener/trener-taktike-content';
+import { TrenerTreninziContent } from '@/components/trener/trener-treninzi-content';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 
-const TRAINING_SECTIONS: Array<{ id: string; title: string; description: string; href: string }> = [
-  {
-    id: 'dodaj-igraca',
-    title: 'DODAJ IGRACA',
-    description: 'Otvara formu za kreiranje igraca i automatski upis u klub.',
-    href: '/trener/dodaj-igraca',
-  },
-  {
-    id: 'tim',
-    title: 'TIM',
-    description: 'Upravljanje igracima, rosterom i pripadnoscu klubu.',
-    href: '/trener/tim',
-  },
-  {
-    id: 'treninzi',
-    title: 'TRENINZI',
-    description: 'Plan treninga, termini i evidencija prisustva.',
-    href: '/trener/treninzi',
-  },
-  {
-    id: 'taktike',
-    title: 'TAKTIKE',
-    description: 'Kreiranje i deljenje taktika za clanove kluba.',
-    href: '/trener/taktike',
-  },
-  {
-    id: 'clanarine',
-    title: 'CLANARINE',
-    description: 'Evidencija clanarina i status uplata igraca.',
-    href: '/trener/clanarine',
-  },
-  {
-    id: 'moja-liga',
-    title: 'MOJA LIGA',
-    description: 'Pregled svih klubova u tvojoj ligi, njihovih timova i licenci.',
-    href: '/trener/moja-liga',
-  },
-  {
-    id: 'takmicenje',
-    title: 'TAKMICENJE',
-    description: 'Tabela grupe i lista najboljih strelaca u tvojoj ligi.',
-    href: '/trener/takmicenje',
-  },
-] as const;
+type HubChip = 'treninzi' | 'taktike';
 
-export default function TrenerHomeScreen() {
+export default function TrenerHubScreen() {
+  const { colors } = useAppTheme();
+  const [chip, setChip] = useState<HubChip>('treninzi');
+
+  useScreenPullRefresh(useCallback(() => Promise.resolve(), []));
+
   return (
-    <ScreenShell>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <ThemedView style={styles.headerRow}>
-        <ThemedText type="title">Treninzi</ThemedText>
-      </ThemedView>
-      <ThemedText>
-        Trening tab je organizovan po funkcionalnim sekcijama. Klik otvara poseban ekran.
-      </ThemedText>
-      <Link href="/home" style={styles.link}>
-        Otvori shared home
-      </Link>
+    <ScreenShell disableKeyboardAvoiding>
+      <View style={styles.hubFill}>
+        <RefreshableScrollView
+          style={styles.hubScroll}
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+        >
+        <View style={styles.chipRow}>
+          <Pressable
+            style={[
+              styles.chipFilled,
+              {
+                backgroundColor: chip === 'treninzi' ? ActionAccentHex : colors.surfaceMuted,
+                borderColor: chip === 'treninzi' ? ActionAccentHex : colors.borderStrong,
+              },
+            ]}
+            onPress={() => setChip('treninzi')}>
+            <ThemedText
+              type="defaultSemiBold"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={{
+                color: chip === 'treninzi' ? '#fff' : colors.text,
+                fontSize: 11,
+                letterSpacing: 0.15,
+                textAlign: 'center',
+              }}>
+              Treninzi
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.chipFilled,
+              {
+                backgroundColor: chip === 'taktike' ? ActionAccentHex : colors.surfaceMuted,
+                borderColor: chip === 'taktike' ? ActionAccentHex : colors.borderStrong,
+              },
+            ]}
+            onPress={() => setChip('taktike')}>
+            <ThemedText
+              type="defaultSemiBold"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={{
+                color: chip === 'taktike' ? '#fff' : colors.text,
+                fontSize: 11,
+                letterSpacing: 0.15,
+                textAlign: 'center',
+              }}>
+              Taktike
+            </ThemedText>
+          </Pressable>
+        </View>
 
-      {TRAINING_SECTIONS.map((section) => (
-        <Pressable
-          key={section.id}
-          style={styles.sectionCard}
-          onPress={() => router.push(section.href as never)}>
-          <ThemedView style={styles.sectionHeader}>
-            <ThemedText type="subtitle">{section.title}</ThemedText>
-            <ThemedText style={styles.chevron}>▸</ThemedText>
-          </ThemedView>
-          <ThemedText>{section.description}</ThemedText>
-        </Pressable>
-      ))}
-    </ScrollView>
+        {chip === 'treninzi' ? <TrenerTreninziContent embedded /> : <TrenerTaktikeContent embedded />}
+        </RefreshableScrollView>
+      </View>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 10, padding: 16, paddingBottom: 24 },
-  headerRow: {
+  hubFill: { flex: 1 },
+  hubScroll: { flex: 1 },
+  container: { gap: 15, padding: 16, paddingBottom: 24 },
+  chipRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  link: { textDecorationLine: 'underline', fontSize: 16 },
-  sectionCard: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 8,
-    padding: 10,
+    alignSelf: 'stretch',
     gap: 8,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  chipFilled: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minHeight: 38,
+    justifyContent: 'center',
     alignItems: 'center',
-  },
-  chevron: {
-    fontSize: 16,
-    opacity: 0.8,
+    borderWidth: 1,
   },
 });

@@ -9,8 +9,10 @@ export default function DelegatKlubDetailScreen() {
   return (
     <ClubTeamView
       clubId={clubId}
-      onBack={() => router.back()}
-      onOpenUser={(userId) => router.push(`/delegat/korisnik/${userId}`)}
+      showMemberFees={false}
+      onOpenUser={(userId, cid) =>
+        router.push(`/delegat/korisnik/${userId}?clubId=${cid}` as never)
+      }
     />
   );
 }

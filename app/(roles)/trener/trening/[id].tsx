@@ -1,10 +1,24 @@
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import type { MatchRichTheme } from '@/components/shared/match-rich-card';
+import { TrainingRichCard } from '@/components/trener/training-rich-card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+
+const CELEBRATION_GREEN = '#047857';
 
 type Player = {
   player_id: string;
@@ -37,12 +51,28 @@ function playerName(p: Player) {
 export default function TrenerTreningDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const trainingId = Number(id);
+  const { colors } = useAppTheme();
+
+  const matchRichTheme = useMemo<MatchRichTheme>(
+    () => ({
+      surfaceMuted: colors.surfaceMuted,
+      borderStrong: colors.borderStrong,
+      tint: colors.tint,
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
+      danger: colors.danger,
+    }),
+    [colors],
+  );
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [saveCelebration, setSaveCelebration] = useState(false);
+  const saveSuccessPulse = useRef(new Animated.Value(1)).current;
 
   const load = useCallback(async () => {
     if (!Number.isFinite(trainingId)) {
@@ -69,9 +99,30 @@ export default function TrenerTreningDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      void load();
+    }, [load]),
   );
+
+  useScreenPullRefresh(load);
+
+  const clearSaveCelebration = useCallback(() => {
+    setSaveCelebration(false);
+  }, []);
+
+  useEffect(() => {
+    if (!saveCelebration) {
+      saveSuccessPulse.setValue(0.88);
+      return;
+    }
+    saveSuccessPulse.setValue(0.78);
+    Animated.timing(saveSuccessPulse, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+    const t = setTimeout(() => clearSaveCelebration(), 3000);
+    return () => clearTimeout(t);
+  }, [saveCelebration, clearSaveCelebration, saveSuccessPulse]);
 
   const toggle = (pid: string) => {
     if (!data?.can_manage) return;
@@ -101,45 +152,65 @@ export default function TrenerTreningDetailScreen() {
       return;
     }
     await load();
+    setSaveCelebration(true);
   };
 
   const presentCount = useMemo(() => selected.size, [selected]);
+  const totalPlayers = data?.players.length ?? 0;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <ThemedText style={styles.backText}>← Nazad</ThemedText>
-      </Pressable>
-
-      {loading ? <ActivityIndicator /> : null}
+    <RefreshableScrollView
+      contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}
+    >
+      {loading ? <ActivityIndicator color={colors.tint} /> : null}
 
       {errorMessage ? (
-        <ThemedView style={styles.errorCard}>
-          <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
+        <ThemedView
+          style={[
+            styles.errorCard,
+            { borderColor: colors.danger, backgroundColor: colors.surface },
+          ]}
+        >
+          <ThemedText style={[styles.errorText, { color: colors.danger }]}>{errorMessage}</ThemedText>
         </ThemedView>
       ) : null}
 
       {data?.training ? (
-        <ThemedView style={styles.card}>
-          <ThemedText type="title">{data.training.topic}</ThemedText>
-          <ThemedText>Termin: {fmt(data.training.scheduled_at)}</ThemedText>
-          {data.training.venue ? <ThemedText>Mesto: {data.training.venue}</ThemedText> : null}
-          {data.training.note ? <ThemedText style={styles.muted}>{data.training.note}</ThemedText> : null}
-        </ThemedView>
+        <TrainingRichCard
+          theme={matchRichTheme}
+          topic={data.training.topic}
+          scheduledIso={data.training.scheduled_at}
+          venue={data.training.venue}
+          note={data.training.note}
+          playersPresent={presentCount}
+          playersTotal={totalPlayers}
+        />
       ) : null}
 
-      <ThemedText type="subtitle">
-        Prisustvo ({presentCount}/{data?.players.length ?? 0})
-      </ThemedText>
+      <ThemedView style={styles.sectionHead}>
+        <MaterialIcons name="how-to-reg" size={22} color={colors.tint} />
+        <ThemedText type="subtitle" style={{ color: colors.text }}>
+          Prisustvo ({presentCount}/{totalPlayers})
+        </ThemedText>
+      </ThemedView>
       {data?.can_manage ? (
-        <ThemedText style={styles.muted}>Tap na igraca da oznacis/skines prisustvo, pa pritisni Sacuvaj.</ThemedText>
+        <ThemedText style={[styles.hint, { color: colors.textSecondary }]}>
+          Dodirni igrača da označiš / skineš prisustvo, zatim sačuvaj.
+        </ThemedText>
       ) : (
-        <ThemedText style={styles.muted}>Samo trener/klub mogu da beleze prisustvo.</ThemedText>
+        <ThemedText style={[styles.hint, { color: colors.textSecondary }]}>
+          Samo trener ili klub mogu da beleže prisustvo.
+        </ThemedText>
       )}
 
       {data?.players.length === 0 ? (
-        <ThemedView style={styles.card}>
-          <ThemedText>Nema igraca u klubu.</ThemedText>
+        <ThemedView
+          style={[
+            styles.emptyCard,
+            { borderColor: colors.borderStrong, backgroundColor: colors.surfaceMuted },
+          ]}
+        >
+          <ThemedText style={{ color: colors.text }}>Nema igrača u klubu.</ThemedText>
         </ThemedView>
       ) : null}
 
@@ -150,9 +221,29 @@ export default function TrenerTreningDetailScreen() {
             key={p.player_id}
             onPress={() => toggle(p.player_id)}
             disabled={!data?.can_manage}
-            style={[styles.playerRow, isSel && styles.playerRowSel]}>
-            <ThemedText type="defaultSemiBold">{playerName(p)}</ThemedText>
-            <ThemedText style={[styles.badge, isSel ? styles.badgeOn : styles.badgeOff]}>
+            style={[
+              styles.playerRow,
+              {
+                borderColor: colors.borderStrong,
+                backgroundColor: colors.surface,
+              },
+              isSel && {
+                borderColor: colors.tint,
+                backgroundColor: colors.accentMuted,
+              },
+            ]}
+          >
+            <ThemedText type="defaultSemiBold" style={{ color: colors.text }}>
+              {playerName(p)}
+            </ThemedText>
+            <ThemedText
+              style={[
+                styles.badge,
+                isSel
+                  ? { backgroundColor: colors.tint, color: '#fff' }
+                  : { backgroundColor: colors.surfaceMuted, color: colors.textSecondary },
+              ]}
+            >
               {isSel ? 'Prisutan' : 'Nije'}
             </ThemedText>
           </Pressable>
@@ -161,71 +252,91 @@ export default function TrenerTreningDetailScreen() {
 
       {data?.can_manage ? (
         <Pressable
-          style={[styles.primaryButton, saving && styles.buttonDisabled]}
+          style={[
+            styles.primaryButton,
+            { backgroundColor: saveCelebration ? CELEBRATION_GREEN : colors.tint },
+            saveCelebration && styles.saveBtnCelebration,
+            saving && styles.buttonDisabled,
+          ]}
           onPress={onSave}
-          disabled={saving}>
+          disabled={saving || saveCelebration}
+        >
           {saving ? (
             <ActivityIndicator color="#fff" />
+          ) : saveCelebration ? (
+            <View style={styles.saveCelebrationRow}>
+              <Animated.View style={{ transform: [{ scale: saveSuccessPulse }] }}>
+                <MaterialIcons name="check-circle" size={28} color="#FFFFFF" accessibilityLabel="Sačuvano" />
+              </Animated.View>
+              <ThemedText
+                lightColor="#FFFFFF"
+                darkColor="#FFFFFF"
+                style={styles.saveCelebrationText}
+              >
+                Prisustvo sačuvano
+              </ThemedText>
+            </View>
           ) : (
-            <ThemedText style={styles.primaryButtonText}>Sacuvaj prisustvo</ThemedText>
+            <ThemedText style={styles.primaryButtonText}>Sačuvaj prisustvo</ThemedText>
           )}
         </Pressable>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
-function fmt(iso: string) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 const styles = StyleSheet.create({
-  container: { gap: 10, padding: 16, paddingBottom: 24 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  container: { gap: 12, padding: 16, paddingBottom: 28 },
+  errorCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 12,
   },
-  backText: { fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 4 },
-  errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
-  errorText: { color: '#c53939' },
-  muted: { color: '#888', fontStyle: 'italic' },
+  errorText: { fontWeight: '600' },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  hint: { fontSize: 14, lineHeight: 20 },
+  emptyCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 14,
+  },
   playerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#888',
-    borderRadius: 8,
-    padding: 10,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
-  playerRowSel: { borderColor: '#0a7ea4', backgroundColor: '#eaf4f8' },
   badge: {
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     fontSize: 12,
     overflow: 'hidden',
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  badgeOn: { backgroundColor: '#0a7ea4', color: '#fff' },
-  badgeOff: { backgroundColor: '#eee', color: '#666' },
   primaryButton: {
     marginTop: 8,
-    minHeight: 44,
-    borderRadius: 8,
+    minHeight: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
   },
-  primaryButtonText: { color: '#fff', fontWeight: '700' },
+  saveBtnCelebration: { paddingHorizontal: 14 },
+  saveCelebrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  saveCelebrationText: { fontWeight: '700', fontSize: 15 },
+  primaryButtonText: { color: '#fff', fontWeight: '800', letterSpacing: 0.3 },
   buttonDisabled: { opacity: 0.6 },
 });

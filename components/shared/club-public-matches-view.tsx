@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
+import { MatchRichCard, formatScore, playedOutcomeLetter, type MatchRichTheme } from '@/components/shared/match-rich-card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useAppTheme } from '@/contexts/app-theme-context';
 import { supabase } from '@/lib/supabase';
 
-type MatchRow = {
+export type ClubPublicMatchRow = {
   id: number;
   scheduled_at: string;
   venue: string | null;
@@ -22,38 +24,16 @@ type MatchRow = {
 
 type Payload = {
   club_id: number;
-  played: MatchRow[];
-  upcoming: MatchRow[];
+  played: ClubPublicMatchRow[];
+  upcoming: ClubPublicMatchRow[];
 };
 
-export type ClubPublicMatchesViewProps = {
-  clubId: number;
-};
-
-function fmt(iso: string | null | undefined) {
-  if (!iso) return '-';
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
-function resultLabel(r?: string) {
-  if (r === 'W') return 'Pobeda';
-  if (r === 'L') return 'Poraz';
-  if (r === 'N') return 'Nereseno';
-  return r ?? '-';
-}
-
-export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
+export function useClubPublicMatches(clubId: number) {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
     if (!Number.isFinite(clubId)) return;
     setLoading(true);
     setErrorMessage('');
@@ -69,11 +49,31 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
   }, [clubId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    void reload();
+  }, [reload]);
 
+  return { data, loading, errorMessage, reload };
+}
+
+export type ClubPublicMatchesViewProps = {
+  clubId: number;
+};
+
+export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
+  const { data, loading, errorMessage } = useClubPublicMatches(clubId);
+  const { colors } = useAppTheme();
   const played = data?.played ?? [];
   const upcoming = data?.upcoming ?? [];
+
+  const theme: MatchRichTheme = {
+    surfaceMuted: colors.surfaceMuted,
+    borderStrong: colors.borderStrong,
+    tint: colors.tint,
+    text: colors.text,
+    textSecondary: colors.textSecondary,
+    textMuted: colors.textMuted,
+    danger: colors.danger,
+  };
 
   return (
     <View style={styles.container}>
@@ -86,7 +86,7 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
 
       {!loading && !errorMessage ? (
         <>
-          <ThemedText type="subtitle">Predstojece utakmice ({upcoming.length})</ThemedText>
+          <ThemedText type="subtitle">Predstojeće ({upcoming.length})</ThemedText>
           {upcoming.length === 0 ? (
             <ThemedText style={styles.muted}>Nema zakazanih utakmica.</ThemedText>
           ) : (
@@ -95,27 +95,25 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
                 m.side === 'home'
                   ? (m.away_club_name ?? `#${m.away_club_id}`)
                   : (m.home_club_name ?? `#${m.home_club_id}`);
-              const prefix = m.side === 'home' ? 'vs' : '@';
               return (
-                <ThemedView key={m.id} style={styles.card}>
-                  <ThemedText type="defaultSemiBold">
-                    {prefix} {opp}
-                  </ThemedText>
-                  <ThemedText>Termin: {fmt(m.scheduled_at)}</ThemedText>
-                  {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                  <ThemedText>Status: {m.status}</ThemedText>
-                  {m.home_score != null && m.away_score != null ? (
-                    <ThemedText>
-                      {m.status === 'live' ? 'Uzivo: ' : 'Rezultat: '}
-                      {m.home_score} : {m.away_score}
-                    </ThemedText>
-                  ) : null}
-                </ThemedView>
+                <MatchRichCard
+                  key={m.id}
+                  variant="club_upcoming"
+                  theme={theme}
+                  oppName={opp}
+                  scheduledIso={m.scheduled_at}
+                  venue={m.venue}
+                  status={m.status}
+                  homeScore={m.home_score}
+                  awayScore={m.away_score}
+                />
               );
             })
           )}
 
-          <ThemedText type="subtitle">Odigrane utakmice ({played.length})</ThemedText>
+          <ThemedText type="subtitle" style={styles.gapTop}>
+            Odigrane ({played.length})
+          </ThemedText>
           {played.length === 0 ? (
             <ThemedText style={styles.muted}>Nema odigranih utakmica.</ThemedText>
           ) : (
@@ -124,16 +122,18 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
                 m.side === 'home'
                   ? (m.away_club_name ?? `#${m.away_club_id}`)
                   : (m.home_club_name ?? `#${m.home_club_id}`);
-              const prefix = m.side === 'home' ? 'vs' : '@';
+              const scoreLine = formatScore(m.home_score, m.away_score);
+              const outcome = playedOutcomeLetter(m.side, m.home_score, m.away_score, m.result);
               return (
-                <ThemedView key={m.id} style={styles.card}>
-                  <ThemedText type="defaultSemiBold">
-                    {fmt(m.scheduled_at)} — {prefix} {opp} ({resultLabel(m.result)})
-                  </ThemedText>
-                  <ThemedText>
-                    Rezultat: {m.home_score ?? '-'} : {m.away_score ?? '-'}
-                  </ThemedText>
-                </ThemedView>
+                <MatchRichCard
+                  key={m.id}
+                  variant="club_played"
+                  theme={theme}
+                  oppName={opp}
+                  scheduledIso={m.scheduled_at}
+                  scoreLine={scoreLine}
+                  outcome={outcome}
+                />
               );
             })
           )}
@@ -144,8 +144,8 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 6 },
-  card: { borderWidth: 1, borderColor: '#888', borderRadius: 6, padding: 8, gap: 2 },
+  container: { gap: 10 },
+  gapTop: { marginTop: 8 },
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 6, padding: 8 },
   errorText: { color: '#c53939' },
   muted: { color: '#888', fontStyle: 'italic' },
