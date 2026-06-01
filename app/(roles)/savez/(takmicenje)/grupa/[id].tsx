@@ -12,6 +12,7 @@ import { LeagueCompetitionView } from '@/components/shared/league-competition-vi
 import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type Group = { id: number; league_id: number; name: string };
@@ -27,6 +28,7 @@ type Match = {
   scheduled_at: string;
   venue: string | null;
   status: string;
+  display_status?: string | null;
   home_score: number | null;
   away_score: number | null;
 };
@@ -40,6 +42,7 @@ type MatchRow = {
   scheduled_at: string;
   venue: string | null;
   status: string;
+  display_status?: string | null;
   home_score: number | null;
   away_score: number | null;
 };
@@ -267,7 +270,7 @@ export default function GrupaDetailScreen() {
               <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
               <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
               <ThemedText>
-                Status: {m.status}
+                Status: {formatMatchDisplayStatus(m)}
                 {m.home_score != null && m.away_score != null ? `  |  ${m.home_score}:${m.away_score}` : ''}
               </ThemedText>
             </ThemedView>

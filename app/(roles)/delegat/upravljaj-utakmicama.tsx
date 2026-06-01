@@ -1,32 +1,24 @@
-import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect } from 'expo-router';
+import { useAppTheme } from '@/contexts/app-theme-context';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import {
+  MatchRichCard,
+  formatScore,
+  type MatchRichTheme,
+} from '@/components/shared/match-rich-card';
+import { MatchCalendarLegend } from '@/components/shared/match-calendar-legend';
 import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
-import { SearchableSelect, SelectOption } from '@/components/shared/searchable-select';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
-
-type SudijaRow = {
-  user_id: string;
-  username: string | null;
-  display_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  phone: string | null;
-};
-
-type AssignedSudija = {
-  user_id: string;
-  username: string | null;
-  display_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-};
+import {
+  formatMatchDisplayStatus,
+  isMatchDisplayFinished,
+} from '@/lib/match-display-status';
 
 type MatchRow = {
   id: number;
@@ -43,7 +35,8 @@ type MatchRow = {
   away_club_name: string | null;
   home_score: number | null;
   away_score: number | null;
-  sudije: AssignedSudija[];
+  objection_marker?: 'none' | 'pending' | 'resolved' | string | null;
+  display_status?: string | null;
 };
 
 type LeagueRow = {
@@ -51,24 +44,52 @@ type LeagueRow = {
   league_name: string;
 };
 
-function sudijeToOptions(sudije: SudijaRow[]): SelectOption[] {
-  return sudije.map((s) => ({
-    value: s.user_id,
-    label:
-      s.display_name ||
-      [s.first_name, s.last_name].filter(Boolean).join(' ') ||
-      s.username ||
-      '—',
-    sublabel: s.phone ? `@${s.username ?? '-'} · ${s.phone}` : `@${s.username ?? '-'}`,
-  }));
+function formatMatchTimeSr(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('sr-Latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function clubLabel(name: string | null, id: number): string {
+  return name?.trim() ? name.trim() : `#${id}`;
+}
+
+function isMatchPlayed(m: MatchRow): boolean {
+  return isMatchDisplayFinished(m);
+}
+
+function matchHeadline(m: MatchRow): string {
+  return `${clubLabel(m.home_club_name, m.home_club_id)} — ${clubLabel(m.away_club_name, m.away_club_id)}`;
+}
+
+function leagueSublabel(m: MatchRow): string {
+  const league = m.league_name?.trim() || `Liga #${m.league_id}`;
+  return m.group_name?.trim() ? `${league} · ${m.group_name.trim()}` : league;
 }
 
 export default function DelegatUpravljajUtakmicamaScreen() {
+  const { colors } = useAppTheme();
+  const matchRichTheme = useMemo<MatchRichTheme>(
+    () => ({
+      surfaceMuted: colors.surfaceMuted,
+      borderStrong: colors.borderStrong,
+      tint: colors.tint,
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
+      danger: colors.danger,
+    }),
+    [colors],
+  );
+
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [matches, setMatches] = useState<MatchRow[]>([]);
-  const [sudijeByLeague, setSudijeByLeague] = useState<Map<number, SudijaRow[]>>(new Map());
-  const [savingMatchId, setSavingMatchId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,7 +99,6 @@ export default function DelegatUpravljajUtakmicamaScreen() {
     if (leagueErr) {
       setErrorMessage(leagueErr.message);
       setMatches([]);
-      setSudijeByLeague(new Map());
       setLoading(false);
       return;
     }
@@ -86,23 +106,18 @@ export default function DelegatUpravljajUtakmicamaScreen() {
     const leagues = ((leagueRows ?? []) as LeagueRow[]) || [];
     if (leagues.length === 0) {
       setMatches([]);
-      setSudijeByLeague(new Map());
       setLoading(false);
       return;
     }
 
     const results = await Promise.all(
       leagues.map(async (L) => {
-        const [mRes, sRes] = await Promise.all([
-          supabase.rpc('get_league_matches', { p_league_id: L.league_id }),
-          supabase.rpc('get_league_sudije', { p_league_id: L.league_id }),
-        ]);
+        const { data, error } = await supabase.rpc('get_league_matches', { p_league_id: L.league_id });
         return {
           league_id: L.league_id,
           league_name: L.league_name,
-          matches: (mRes.data ?? []) as Omit<MatchRow, 'league_id' | 'league_name'>[],
-          sudije: (sRes.data ?? []) as SudijaRow[],
-          err: mRes.error?.message || sRes.error?.message || null,
+          matches: (data ?? []) as Omit<MatchRow, 'league_id' | 'league_name'>[],
+          err: error?.message ?? null,
         };
       }),
     );
@@ -111,15 +126,12 @@ export default function DelegatUpravljajUtakmicamaScreen() {
     if (err?.err) {
       setErrorMessage(err.err);
       setMatches([]);
-      setSudijeByLeague(new Map());
       setLoading(false);
       return;
     }
 
     const merged: MatchRow[] = [];
-    const sudMap = new Map<number, SudijaRow[]>();
     for (const r of results) {
-      sudMap.set(r.league_id, r.sudije);
       for (const m of r.matches) {
         merged.push({
           ...m,
@@ -128,7 +140,6 @@ export default function DelegatUpravljajUtakmicamaScreen() {
         });
       }
     }
-    setSudijeByLeague(sudMap);
     setMatches(merged);
     setLoading(false);
   }, []);
@@ -139,193 +150,89 @@ export default function DelegatUpravljajUtakmicamaScreen() {
     }, [load]),
   );
 
-  const optionsForLeague = useCallback(
-    (leagueId: number) => sudijeToOptions(sudijeByLeague.get(leagueId) ?? []),
-    [sudijeByLeague],
-  );
-
-  const onChangeSlot = async (match: MatchRow, slotIndex: 0 | 1, newUserId: string | null) => {
-    setSavingMatchId(match.id);
-    setErrorMessage('');
-
-    const current = match.sudije[slotIndex]?.user_id ?? null;
-    const other = match.sudije[slotIndex === 0 ? 1 : 0]?.user_id ?? null;
-
-    if (newUserId && newUserId === other) {
-      setErrorMessage('Isti sudija ne moze biti dodeljen dva puta na istu utakmicu.');
-      setSavingMatchId(null);
-      return;
-    }
-
-    if (current === newUserId) {
-      setSavingMatchId(null);
-      return;
-    }
-
-    if (current) {
-      const { error: delErr } = await supabase
-        .from('match_officials')
-        .delete()
-        .eq('match_id', match.id)
-        .eq('user_id', current)
-        .eq('role', 'sudija');
-      if (delErr) {
-        setErrorMessage(`Uklanjanje sudije: ${delErr.message}`);
-        setSavingMatchId(null);
-        return;
-      }
-    }
-
-    if (newUserId) {
-      const { error: insErr } = await supabase.from('match_officials').insert({
-        match_id: match.id,
-        user_id: newUserId,
-        role: 'sudija',
-      });
-      if (insErr) {
-        setErrorMessage(`Dodela sudije: ${insErr.message}`);
-        setSavingMatchId(null);
-        await load();
-        return;
-      }
-    }
-
-    await load();
-    setSavingMatchId(null);
-  };
-
   useScreenPullRefresh(load);
+
+  const renderMatch = (m: MatchRow) => {
+    const headline = matchHeadline(m);
+
+    return (
+      <View style={styles.matchBlock}>
+        <ThemedText style={[styles.leagueTag, { color: colors.textSecondary }]}>
+          {leagueSublabel(m)}
+        </ThemedText>
+        {isMatchPlayed(m) ? (
+          <MatchRichCard
+            variant="club_played"
+            theme={matchRichTheme}
+            oppName={headline}
+            headline={headline}
+            scheduledIso={m.scheduled_at}
+            scoreLine={formatScore(m.home_score, m.away_score)}
+            outcome={null}
+          />
+        ) : (
+          <MatchRichCard
+            variant="club_upcoming"
+            theme={matchRichTheme}
+            oppName={headline}
+            headline={headline}
+            scheduledIso={m.scheduled_at}
+            venue={m.venue}
+            status={formatMatchDisplayStatus(m)}
+            homeScore={m.home_score}
+            awayScore={m.away_score}
+            matchTime={formatMatchTimeSr(m.scheduled_at)}
+          />
+        )}
+      </View>
+    );
+  };
 
   return (
     <RefreshableScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Upravljaj utakmicama</ThemedText>
-      <ThemedText>
-        Kalendar svih utakmica u ligama gde si delegat. Dodeli sudije i otvori detalj utakmice.
-      </ThemedText>
-
-      <Pressable style={styles.refreshButton} onPress={load}>
-        <ThemedText style={styles.refreshText}>Osveži</ThemedText>
-      </Pressable>
-
-      {loading ? <ActivityIndicator /> : null}
+      {loading ? <ActivityIndicator color={colors.tint} /> : null}
 
       {errorMessage ? (
-        <ThemedView style={styles.errorCard}>
+        <ThemedView style={[styles.errorCard, { borderColor: colors.borderStrong }]}>
           <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
         </ThemedView>
       ) : null}
 
       {!loading && matches.length === 0 ? (
-        <ThemedView style={styles.card}>
-          <ThemedText>Nema zakazanih utakmica u tvojim ligama.</ThemedText>
+        <ThemedView style={[styles.card, { borderColor: colors.borderStrong }]}>
+          <ThemedText style={{ color: colors.textSecondary }}>
+            Nema zakazanih utakmica u tvojim ligama.
+          </ThemedText>
         </ThemedView>
       ) : null}
 
       {!loading && matches.length > 0 ? (
-        <MatchTimetableCalendar
-          matches={matches}
-          onMatchPress={(m) => router.push(`/delegat/utakmica/${m.id}` as never)}
-          renderMatch={(m) => {
-            const opts = optionsForLeague(m.league_id);
-            const slot0 = m.sudije[0]?.user_id ?? null;
-            const slot1 = m.sudije[1]?.user_id ?? null;
-            const isBusy = savingMatchId === m.id;
-
-            return (
-              <ThemedView style={styles.matchCard}>
-                <ThemedText style={styles.leagueTag}>{m.league_name ?? `Liga #${m.league_id}`}</ThemedText>
-                <ThemedText type="defaultSemiBold">
-                  {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
-                </ThemedText>
-                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
-                {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                <ThemedText>Status: {m.status}</ThemedText>
-                {m.home_score !== null && m.away_score !== null ? (
-                  <ThemedText>
-                    Rezultat: {m.home_score} - {m.away_score}
-                  </ThemedText>
-                ) : null}
-
-                <ThemedText style={styles.subLabel}>Sudije</ThemedText>
-                <ThemedView style={styles.selectsRow}>
-                  <SearchableSelect
-                    label="Sudija 1"
-                    placeholder="Izaberi sudiju"
-                    options={opts}
-                    value={slot0}
-                    disabledValues={slot1 ? [slot1] : []}
-                    onChange={(v) => onChangeSlot(m, 0, v)}
-                  />
-                  <SearchableSelect
-                    label="Sudija 2"
-                    placeholder="Izaberi sudiju"
-                    options={opts}
-                    value={slot1}
-                    disabledValues={slot0 ? [slot0] : []}
-                    onChange={(v) => onChangeSlot(m, 1, v)}
-                  />
-                </ThemedView>
-
-                <Pressable
-                  style={styles.detailButton}
-                  onPress={() => router.push(`/delegat/utakmica/${m.id}` as never)}>
-                  <ThemedText style={styles.detailButtonText}>Uslovi i start utakmice →</ThemedText>
-                </Pressable>
-
-                {isBusy ? <ActivityIndicator /> : null}
-              </ThemedView>
-            );
-          }}
-        />
+        <>
+          <ThemedText type="subtitle" style={{ color: colors.text }}>
+            Raspored utakmica
+          </ThemedText>
+          <MatchCalendarLegend />
+          <MatchTimetableCalendar
+            matches={matches}
+            renderMatch={renderMatch}
+            onMatchPress={(m) => router.push(`/delegat/utakmica/${m.id}` as never)}
+          />
+        </>
       ) : null}
     </RefreshableScrollView>
   );
 }
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return '-';
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 40 },
-  refreshButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: ActionAccentHex,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  refreshText: { color: ActionAccentHex, fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10 },
-  matchCard: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 10,
-    padding: 12,
-    gap: 6,
-  },
-  leagueTag: { fontSize: 12, fontWeight: '700', opacity: 0.85 },
-  subLabel: { marginTop: 6, fontSize: 12, opacity: 0.8 },
-  selectsRow: { flexDirection: 'row', gap: 10 },
-  errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
+  card: { borderWidth: 1, borderRadius: 10, padding: 12 },
+  matchBlock: { gap: 6 },
+  leagueTag: { fontSize: 12, fontWeight: '700', paddingHorizontal: 2 },
+  errorCard: { borderWidth: 1, borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
-  detailButton: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: ActionAccentHex,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  detailButtonText: { color: ActionAccentHex, fontWeight: '600' },
+  legendBlock: { gap: 6 },
+  legendLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendDotSample: { width: 8, height: 8, borderRadius: 4, marginLeft: 2 },
+  legendBang: { width: 14, textAlign: 'center', fontWeight: '800', fontSize: 15, lineHeight: 16 },
+  legend: { fontSize: 13, opacity: 0.9, flex: 1 },
 });

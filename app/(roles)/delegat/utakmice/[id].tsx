@@ -9,6 +9,7 @@ import { MatchTimetableCalendar } from '@/components/shared/match-timetable-cale
 import { SearchableSelect, SelectOption } from '@/components/shared/searchable-select';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type SudijaRow = {
@@ -35,6 +36,7 @@ type MatchRow = {
   scheduled_at: string;
   venue: string | null;
   status: string;
+  display_status?: string | null;
   home_club_id: number;
   home_club_name: string | null;
   away_club_id: number;
@@ -188,7 +190,7 @@ export default function DelegatUtakmiceScreen() {
                 <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
                 {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
                 {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                <ThemedText>Status: {m.status}</ThemedText>
+                <ThemedText>Status: {formatMatchDisplayStatus(m)}</ThemedText>
                 {m.home_score !== null && m.away_score !== null ? (
                   <ThemedText>
                     Rezultat: {m.home_score} - {m.away_score}

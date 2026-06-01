@@ -8,6 +8,7 @@ import { MatchTimetableCalendar } from '@/components/shared/match-timetable-cale
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type CoSudija = {
@@ -34,6 +35,7 @@ type MatchRow = {
   group_id: number | null;
   group_name: string | null;
   co_sudije: CoSudija[];
+  display_status?: string | null;
 };
 
 type Profile = {
@@ -148,7 +150,7 @@ export default function SudijaHomeScreen() {
                     {m.league_name ? <ThemedText>Liga: {m.league_name}</ThemedText> : null}
                     {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
                     {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-                    <ThemedText>Status: {m.status}</ThemedText>
+                    <ThemedText>Status: {formatMatchDisplayStatus(m)}</ThemedText>
                     {m.home_score !== null && m.away_score !== null ? (
                       <ThemedText>
                         Rezultat: {m.home_score} - {m.away_score}

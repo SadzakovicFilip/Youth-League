@@ -5,7 +5,7 @@ export function getRoleHomeRoute(role: string): string | null {
     case 'savez':
       return '/savez';
     case 'delegat':
-      return '/delegat';
+      return '/delegat/upravljaj-utakmicama';
     case 'klub':
       return '/klub';
     case 'trener':

@@ -10,6 +10,7 @@ export default function TrenerKlubDetailScreen() {
     <ClubTeamView
       clubId={clubId}
       showMemberFees={false}
+      showLicenseRow={false}
       onOpenUser={(userId, cid) =>
         router.push(`/trener/korisnik/${userId}?clubId=${cid}` as never)
       }

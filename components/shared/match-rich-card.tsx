@@ -1,9 +1,10 @@
 import { ActionAccentHex } from "@/constants/theme";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
+import { isMatchDisplayLive } from "@/lib/match-display-status";
 
 export function formatMatchDateDdMmYyyy(iso: string | null | undefined): string {
   if (!iso?.trim()) return "—";
@@ -59,8 +60,12 @@ type Base = {
   theme: MatchRichTheme;
   oppName: string;
   scheduledIso: string;
+  /** Zamena za podrazumevani „vs {oppName}” (npr. „Domaćin — Gost”). */
+  headline?: string;
   /** Kada je postavljeno, cela kartica je klikabilna. */
   onPress?: () => void;
+  /** Sadržaj ispod redova utakmice (npr. zapisničar) — unutar iste kartice. */
+  footer?: ReactNode;
 };
 
 export type MatchRichCardProps =
@@ -94,12 +99,29 @@ export type MatchRichCardProps =
     });
 
 export function MatchRichCard(props: MatchRichCardProps) {
-  const { theme, oppName, scheduledIso, onPress } = props;
+  const { theme, oppName, scheduledIso, headline, onPress, footer } = props;
   const dateStr = formatMatchDateDdMmYyyy(scheduledIso);
+  const headlineText = headline?.trim() ? headline.trim() : `vs ${oppName}`;
   const [shellH, setShellH] = useState(96);
   const watermarkSize = useMemo(
     () => Math.round(Math.max(44, Math.min(160, shellH * 0.72))),
     [shellH],
+  );
+  const cardPressable = Boolean(onPress) && !footer;
+
+  const headlineRow = (
+    <View style={styles.rowBetween}>
+      <View style={styles.vsWrap}>
+        <MaterialIcons name="sports-basketball" size={18} color={theme.tint} />
+        <ThemedText
+          type="defaultSemiBold"
+          numberOfLines={2}
+          style={[styles.vsText, { color: theme.text }]}>
+          {headlineText}
+        </ThemedText>
+      </View>
+      <ThemedText style={[styles.dateTxt, { color: theme.textSecondary }]}>{dateStr}</ThemedText>
+    </View>
   );
 
   const shell = (
@@ -128,18 +150,13 @@ export function MatchRichCard(props: MatchRichCardProps) {
       <View style={styles.rowOuter}>
         <View style={[styles.stripe, { backgroundColor: theme.tint }]} />
         <View style={styles.body}>
-          <View style={styles.rowBetween}>
-            <View style={styles.vsWrap}>
-              <MaterialIcons name="sports-basketball" size={18} color={theme.tint} />
-              <ThemedText
-                type="defaultSemiBold"
-                numberOfLines={1}
-                style={[styles.vsText, { color: theme.text }]}>
-                vs {oppName}
-              </ThemedText>
-            </View>
-            <ThemedText style={[styles.dateTxt, { color: theme.textSecondary }]}>{dateStr}</ThemedText>
-          </View>
+          {onPress && footer ? (
+            <Pressable onPress={onPress} accessibilityRole="button">
+              {headlineRow}
+            </Pressable>
+          ) : (
+            headlineRow
+          )}
 
           {props.variant === "player_played" ? (
             <>
@@ -217,7 +234,7 @@ export function MatchRichCard(props: MatchRichCardProps) {
               {props.homeScore != null && props.awayScore != null ? (
                 <View style={[styles.rowBetween, styles.rowLast]}>
                   <ThemedText style={[styles.lbl, { color: theme.textSecondary }]}>
-                    {props.status === "live" ? "Uživo" : "Rezultat"}
+                    {isMatchDisplayLive({ display_status: props.status, status: props.status }) ? 'Uživo' : 'Rezultat'}
                   </ThemedText>
                   <ThemedText style={[styles.val, { color: theme.text }]}>
                     {props.homeScore} : {props.awayScore}
@@ -257,12 +274,16 @@ export function MatchRichCard(props: MatchRichCardProps) {
               ) : null}
             </>
           ) : null}
+
+          {footer ? (
+            <View style={[styles.footer, { borderTopColor: theme.borderStrong }]}>{footer}</View>
+          ) : null}
         </View>
       </View>
     </View>
   );
 
-  if (onPress) {
+  if (cardPressable) {
     return (
       <Pressable
         onPress={onPress}
@@ -343,5 +364,11 @@ const styles = StyleSheet.create({
     gap: 6,
     maxWidth: "48%",
     justifyContent: "flex-end",
+  },
+  footer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    marginTop: 2,
+    gap: 6,
   },
 });

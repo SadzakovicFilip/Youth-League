@@ -12,10 +12,15 @@ import {
   playedOutcomeLetter,
   type MatchRichTheme,
 } from '@/components/shared/match-rich-card';
+import { MatchCalendarLegend } from '@/components/shared/match-calendar-legend';
 import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+import {
+  formatMatchDisplayStatus,
+  isMatchDisplayFinished,
+} from '@/lib/match-display-status';
 
 const ROSTER_SIZE = 12;
 
@@ -35,6 +40,7 @@ type MatchRow = {
   side: 'home' | 'away';
   phase: 'upcoming' | 'played' | 'past';
   roster_count: number;
+  display_status?: string | null;
 };
 
 type Payload = {
@@ -109,11 +115,11 @@ export default function TrenerUtakmiceScreen() {
     const opponent =
       m.side === 'home' ? m.away_club_name ?? null : m.home_club_name ?? null;
     const oppLabel = opponent?.trim() ? opponent.trim() : '—';
-    const statusLabel = (m.status ?? '').trim() || '—';
+    const statusLabel = formatMatchDisplayStatus(m);
     const timeStr = formatMatchTimeSr(m.scheduled_at);
-    const playedLike = m.phase === 'played' || m.phase === 'past';
+    const finishedLike = isMatchDisplayFinished(m);
 
-    if (playedLike) {
+    if (finishedLike) {
       const scoreLine = formatScore(m.home_score, m.away_score);
       const outcome = playedOutcomeLetter(
         m.side,
@@ -163,18 +169,7 @@ export default function TrenerUtakmiceScreen() {
       {!loading && data ? (
         <>
           <ThemedText type="subtitle">Raspored utakmica</ThemedText>
-          <ThemedView style={styles.legendBox}>
-            <View style={styles.legendLine}>
-              <View style={[styles.legendDotSample, { backgroundColor: colors.tint }]} />
-              <ThemedText style={styles.legend}>
-                — taj dan ima zakazanih utakmica
-              </ThemedText>
-            </View>
-            <View style={styles.legendLine}>
-              <MaterialIcons name="star" size={14} color={colors.tint} />
-              <ThemedText style={styles.legend}>— sastav još nije kompletan</ThemedText>
-            </View>
-          </ThemedView>
+          <MatchCalendarLegend />
           {data.all.length === 0 ? (
             <ThemedText style={{ color: colors.textSecondary }}>
               Nema utakmica.
@@ -184,7 +179,6 @@ export default function TrenerUtakmiceScreen() {
               matches={data.all}
               renderMatch={renderMatch}
               onMatchPress={(m) => router.push(`/trener/utakmica/${m.id}` as never)}
-              matchesNeedAttention={matchNeedsRoster}
             />
           )}
         </>

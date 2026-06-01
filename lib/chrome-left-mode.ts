@@ -14,14 +14,14 @@ export function resolveChromeLeftMode(pathname: string): ChromeLeftMode {
   const p = normPath(pathname);
 
   if (/^\/klub(\/(index|tim|utakmice|takmicenje))?$/.test(p)) return 'drawer';
-  if (/^\/delegat(\/(index|upravljaj-utakmicama|takmicenje))?$/.test(p)) return 'drawer';
+  if (/^\/delegat(\/(upravljaj-utakmicama|takmicenje|sudije))?$/.test(p)) return 'drawer';
   if (/^\/trener(\/(index|tim|utakmice|takmicenje))?$/.test(p)) return 'drawer';
+  if (/^\/igrac(\/(index|utakmice|takmicenje|profil))?$/.test(p)) return 'drawer';
   /** Tab Takmičenje / Utakmice; drill ispod Takmičenja nema glavni header (savez/_layout). */
   if (/^\/savez(\/utakmice)?$/.test(p)) return 'drawer';
 
   if (/^\/zapisnicar$/.test(p)) return 'drawer';
   if (/^\/sudija$/.test(p)) return 'drawer';
-  if (/^\/igrac(\/index)?$/.test(p)) return 'drawer';
   if (/^\/admin$/.test(p)) return 'drawer';
   if (/^\/spectator$/.test(p)) return 'drawer';
   if (/^\/scout$/.test(p)) return 'drawer';

@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type MatchRow = {
@@ -129,7 +130,7 @@ export const MatchPublicDetailView = forwardRef<MatchPublicDetailViewHandle, Pro
       </ThemedText>
       <ThemedText>Termin: {formatDt(match.scheduled_at)}</ThemedText>
       <ThemedText>Mesto: {match.venue ?? '-'}</ThemedText>
-      <ThemedText>Status: {match.status ?? '-'}</ThemedText>
+      <ThemedText>Status: {formatMatchDisplayStatus(match)}</ThemedText>
       {hasScore ? (
         <ThemedText>
           Rezultat: {match.home_score} : {match.away_score}

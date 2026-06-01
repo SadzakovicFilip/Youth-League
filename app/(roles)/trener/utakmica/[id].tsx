@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -24,6 +26,12 @@ import {
   type SelectOption,
 } from "@/components/shared/searchable-select";
 import { supabase } from "@/lib/supabase";
+import { formatMatchDisplayStatus } from "@/lib/match-display-status";
+import {
+  MatchScorebookDetailView,
+  type MatchScorebookDetailViewHandle,
+} from "@/components/match-scorebook-detail-view";
+import { TrenerPrigovorZapisnikaCard } from "@/components/trener/trener-prigovor-zapisnika-card";
 
 type MatchInfo = {
   id: number;
@@ -142,6 +150,24 @@ export default function TrenerMatchDetailScreen() {
     [colors],
   );
 
+  const prigovorTheme = useMemo(
+    () =>
+      ({
+        text: colors.text,
+        textSecondary: colors.textSecondary,
+        tint: colors.tint,
+        danger: colors.danger,
+        success: colors.success,
+        borderStrong: colors.borderStrong,
+        surfaceMuted: colors.surfaceMuted,
+        inputBorder: colors.inputBorder,
+        inputBackground: colors.inputBackground,
+        textMuted: colors.textMuted,
+        surface: colors.surface,
+      }) satisfies import("@/components/trener/trener-prigovor-zapisnika-card").TrenerPrigovorZapisnikaColors,
+    [colors],
+  );
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveCelebration, setSaveCelebration] = useState(false);
@@ -155,7 +181,9 @@ export default function TrenerMatchDetailScreen() {
   const [prigovorText, setPrigovorText] = useState("");
   const [prigovorSaving, setPrigovorSaving] = useState(false);
   const [prigovorError, setPrigovorError] = useState("");
+  const [objectionModalOpen, setObjectionModalOpen] = useState(false);
   const [tick, setTick] = useState(0);
+  const scorebookRef = useRef<MatchScorebookDetailViewHandle>(null);
 
   const load = useCallback(async () => {
     if (!Number.isFinite(matchId)) {
@@ -184,7 +212,12 @@ export default function TrenerMatchDetailScreen() {
     setLoading(false);
   }, [matchId]);
 
-  useScreenPullRefresh(load);
+  useScreenPullRefresh(
+    useCallback(async () => {
+      await load();
+      await scorebookRef.current?.refresh?.();
+    }, [load]),
+  );
 
   useEffect(() => {
     load();
@@ -358,6 +391,86 @@ export default function TrenerMatchDetailScreen() {
     return info.objection.match_finished || !!info.objection.existing;
   }, [info?.objection]);
 
+  const matchStatus = (info?.match.status ?? "").trim().toLowerCase();
+  const matchFinishedPreview = matchStatus === "finished";
+  const matchLivePreview = matchStatus === "live";
+
+  if ((matchFinishedPreview || matchLivePreview) && info) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <MatchScorebookDetailView
+          ref={scorebookRef}
+          matchId={matchId}
+          onAfterReload={load}
+          topAccessory={
+            matchFinishedPreview && showObjectionCard ? (
+              <Pressable
+                onPress={() => setObjectionModalOpen(true)}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.borderStrong,
+                  borderRadius: 10,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  backgroundColor: colors.surfaceMuted,
+                }}>
+                <ThemedText style={{ color: colors.text, fontWeight: "700" }}>
+                  Prigovor na zapisnik
+                </ThemedText>
+                <ThemedText style={{ color: colors.textSecondary, fontSize: 12 }}>
+                  Podnošenje, status i odluka delegata
+                </ThemedText>
+              </Pressable>
+            ) : null
+          }
+        />
+        {matchFinishedPreview ? (
+        <Modal
+          visible={objectionModalOpen}
+          animationType="slide"
+          onRequestClose={() => setObjectionModalOpen(false)}>
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: colors.background,
+              paddingTop: 52,
+              paddingHorizontal: 16,
+            }}>
+            <Pressable
+              onPress={() => setObjectionModalOpen(false)}
+              style={{ marginBottom: 12, alignSelf: "flex-start" }}>
+              <ThemedText style={{ color: colors.tint, fontWeight: "700" }}>
+                ← Zatvori
+              </ThemedText>
+            </Pressable>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: 12, paddingBottom: 48 }}>
+              {showObjectionCard ? (
+                <TrenerPrigovorZapisnikaCard
+                  info={info}
+                  colors={prigovorTheme}
+                  formatDate={formatDate}
+                  formatCountdown={formatCountdown}
+                  objectionTimeLeftSec={objectionTimeLeftSec}
+                  prigovorOpen={prigovorOpen}
+                  setPrigovorOpen={setPrigovorOpen}
+                  prigovorText={prigovorText}
+                  setPrigovorText={setPrigovorText}
+                  prigovorSaving={prigovorSaving}
+                  prigovorError={prigovorError}
+                  setPrigovorError={setPrigovorError}
+                  onSubmitPrigovor={onSubmitPrigovor}
+                />
+              ) : null}
+            </ScrollView>
+          </View>
+        </Modal>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <RefreshableScrollView
       contentContainerStyle={[
@@ -385,7 +498,7 @@ export default function TrenerMatchDetailScreen() {
             oppName={opponentLabel}
             scheduledIso={info.match.scheduled_at}
             venue={info.match.venue}
-            status={(info.match.status ?? "").trim() || "—"}
+            status={formatMatchDisplayStatus(info.match)}
             homeScore={info.match.home_score}
             awayScore={info.match.away_score}
             matchTime={formatMatchTimeSr(info.match.scheduled_at)}
@@ -418,206 +531,21 @@ export default function TrenerMatchDetailScreen() {
           </ThemedView>
 
           {showObjectionCard ? (
-            <ThemedView
-              style={[
-                styles.objectionCard,
-                {
-                  borderColor: colors.borderStrong,
-                  backgroundColor: colors.surfaceMuted,
-                },
-              ]}>
-              <ThemedText type="defaultSemiBold" style={{ color: colors.text }}>
-                Prigovor na zapisnik
-              </ThemedText>
-              {info.objection?.existing ? (
-                <ThemedView style={styles.objectionDone}>
-                  <ThemedText style={{ color: colors.text }}>
-                    Prigovor podnet:{" "}
-                    {formatDate(info.objection.existing.created_at)}
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.muted, { color: colors.textSecondary }]}>
-                    {info.objection.existing.reason}
-                  </ThemedText>
-                  {(() => {
-                    const st = info.objection?.existing?.status ?? "pending";
-                    if (st === "pending") {
-                      return (
-                        <ThemedText
-                          style={[
-                            styles.objectionPending,
-                            { color: colors.textSecondary },
-                          ]}>
-                          Odluka delegata: na čekanju.
-                        </ThemedText>
-                      );
-                    }
-                    if (st === "accepted") {
-                      return (
-                        <ThemedView style={styles.objectionDecisionBox}>
-                          <ThemedText
-                            style={[
-                              styles.objectionAccepted,
-                              { color: colors.success },
-                            ]}>
-                            Odluka delegata: USVOJEN prigovor na zapisnik.
-                          </ThemedText>
-                          {info.objection.existing.resolved_at ? (
-                            <ThemedText
-                              style={[
-                                styles.muted,
-                                { color: colors.textSecondary },
-                              ]}>
-                              Datum odluke:{" "}
-                              {formatDate(info.objection.existing.resolved_at)}
-                              {info.objection.existing.resolver_display
-                                ? ` · ${info.objection.existing.resolver_display}`
-                                : ""}
-                            </ThemedText>
-                          ) : null}
-                        </ThemedView>
-                      );
-                    }
-                    return (
-                      <ThemedView style={styles.objectionDecisionBox}>
-                        <ThemedText
-                          style={[
-                            styles.objectionRejected,
-                            { color: colors.danger },
-                          ]}>
-                          Odluka delegata: ODBIJEN prigovor na zapisnik.
-                        </ThemedText>
-                        {info.objection.existing.resolved_at ? (
-                          <ThemedText
-                            style={[
-                              styles.muted,
-                              { color: colors.textSecondary },
-                            ]}>
-                            Datum odluke:{" "}
-                            {formatDate(info.objection.existing.resolved_at)}
-                            {info.objection.existing.resolver_display
-                              ? ` · ${info.objection.existing.resolver_display}`
-                              : ""}
-                          </ThemedText>
-                        ) : null}
-                      </ThemedView>
-                    );
-                  })()}
-                </ThemedView>
-              ) : info.objection?.match_finished ? (
-                info.objection.is_trener ? (
-                  info.objection.within_window ? (
-                    <>
-                      <ThemedText
-                        style={[
-                          styles.muted,
-                          { color: colors.textSecondary },
-                        ]}>
-                        Rok za prigovor ističe za{" "}
-                        {formatCountdown(objectionTimeLeftSec)}.
-                      </ThemedText>
-                      {!prigovorOpen ? (
-                        <Pressable
-                          style={[
-                            styles.prigovorBtn,
-                            { backgroundColor: colors.tint },
-                          ]}
-                          onPress={() => setPrigovorOpen(true)}
-                        >
-                          <ThemedText style={styles.prigovorBtnText}>
-                            PRIGOVOR
-                          </ThemedText>
-                        </Pressable>
-                      ) : (
-                        <ThemedView style={styles.prigovorForm}>
-                          <ThemedTextInput
-                            style={[
-                              styles.prigovorInput,
-                              {
-                                borderColor: colors.inputBorder,
-                                backgroundColor: colors.inputBackground,
-                                color: colors.text,
-                              },
-                            ]}
-                            placeholder="Obrazloženje prigovora..."
-                            placeholderTextColor={colors.textMuted}
-                            value={prigovorText}
-                            onChangeText={setPrigovorText}
-                            multiline
-                            numberOfLines={5}
-                            editable={!prigovorSaving}
-                          />
-                          {prigovorError ? (
-                            <ThemedText
-                              style={[styles.errorText, { color: colors.danger }]}
-                            >
-                              {prigovorError}
-                            </ThemedText>
-                          ) : null}
-                          <ThemedView style={styles.prigovorRow}>
-                            <Pressable
-                              style={[
-                                styles.cancelBtn,
-                                {
-                                  borderColor: colors.borderStrong,
-                                  backgroundColor: colors.surface,
-                                },
-                                prigovorSaving && styles.saveBtnDisabled,
-                              ]}
-                              onPress={() => {
-                                setPrigovorOpen(false);
-                                setPrigovorText("");
-                                setPrigovorError("");
-                              }}
-                              disabled={prigovorSaving}
-                            >
-                              <ThemedText
-                                style={[
-                                  styles.cancelBtnText,
-                                  { color: colors.text },
-                                ]}
-                              >
-                                Odustani
-                              </ThemedText>
-                            </Pressable>
-                            <Pressable
-                              style={[
-                                styles.submitBtn,
-                                { backgroundColor: colors.danger },
-                                prigovorSaving && styles.saveBtnDisabled,
-                              ]}
-                              onPress={onSubmitPrigovor}
-                              disabled={prigovorSaving}
-                            >
-                              {prigovorSaving ? (
-                                <ActivityIndicator color="#fff" />
-                              ) : (
-                                <ThemedText style={styles.submitBtnText}>
-                                  POŠALJI PRIGOVOR
-                                </ThemedText>
-                              )}
-                            </Pressable>
-                          </ThemedView>
-                        </ThemedView>
-                      )}
-                    </>
-                  ) : (
-                    <ThemedText
-                      style={[styles.muted, { color: colors.textSecondary }]}
-                    >
-                      Rok od 30 minuta za podnošenje prigovora je istekao.
-                      Smatra se da nemate prigovora na zapisnik.
-                    </ThemedText>
-                  )
-                ) : (
-                  <ThemedText
-                    style={[styles.muted, { color: colors.textSecondary }]}
-                  >
-                    Samo trener kluba učesnika može da podnese prigovor.
-                  </ThemedText>
-                )
-              ) : null}
-            </ThemedView>
+            <TrenerPrigovorZapisnikaCard
+              info={info}
+              colors={prigovorTheme}
+              formatDate={formatDate}
+              formatCountdown={formatCountdown}
+              objectionTimeLeftSec={objectionTimeLeftSec}
+              prigovorOpen={prigovorOpen}
+              setPrigovorOpen={setPrigovorOpen}
+              prigovorText={prigovorText}
+              setPrigovorText={setPrigovorText}
+              prigovorSaving={prigovorSaving}
+              prigovorError={prigovorError}
+              setPrigovorError={setPrigovorError}
+              onSubmitPrigovor={onSubmitPrigovor}
+            />
           ) : null}
 
           <ThemedView style={styles.sectionHead}>

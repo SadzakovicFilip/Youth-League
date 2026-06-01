@@ -260,7 +260,7 @@ export default function DelegatLigaDetailScreen() {
 
   return (
     <RefreshableScrollView contentContainerStyle={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.push("/delegat")}>
+      <Pressable style={styles.backButton} onPress={() => router.push('/delegat/takmicenje')}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
       <ThemedText type="title">{league?.name ?? "Liga"}</ThemedText>

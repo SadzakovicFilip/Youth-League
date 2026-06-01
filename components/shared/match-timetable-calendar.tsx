@@ -8,33 +8,138 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import {
+  CALENDAR_LIVE_BLUE,
+  getMatchCalendarStatusColors,
+  resolveDayMarkerFromMatches,
+  type MatchCalendarMarkerInput,
+  type MatchCalendarStatusColors,
+} from '@/lib/match-calendar-markers';
+import {
   daysInMonth,
   mondayIndexFromSunday,
   monthTitleSr,
   parseIsoToLocalDay,
   startOfLocalDay,
   WEEKDAY_LABELS_MON_FIRST,
+  sortTimetableDayMatches,
   ymdKey,
 } from '@/lib/match-calendar-utils';
 
-export type TimetableMatch = { id: number; scheduled_at: string };
+export type TimetableMatch = MatchCalendarMarkerInput & {
+  id: number;
+  scheduled_at: string;
+  phase?: string | null;
+};
+
+/** Marker ispod broja dana u kalendaru. */
+export type MatchDayCalendarMarker =
+  | 'dot'
+  | 'star'
+  | 'iscekivanje'
+  | 'nema_uslova'
+  | 'uzivo'
+  | 'neodigrana'
+  | 'objection_pending'
+  | 'played_ok'
+  | 'played_resolved';
 
 type Props<T extends TimetableMatch> = {
   matches: T[];
-  /** Prikaz jedne utakmice u listi ispod kalendara (bez sopstvenog Pressable ako koristite onMatchPress). */
   renderMatch: (m: T) => ReactNode;
   onMatchPress?: (m: T) => void;
-  /** Opciono: zaglavlje iznad liste za izabrani dan */
   emptyDayMessage?: string;
-  /** Kada je true za utakmicu na danu, na kalendaru se prikazuje zvezdica umesto tačke. */
+  /**
+   * @deprecated Koristi prikazni status (display_status). Ostaje samo za treninge.
+   */
   matchesNeedAttention?: (m: T) => boolean;
-  /** Boja tačke za dane koji imaju barem jedan termin (podrazumevano narandžasta). */
+  resolveDayMarker?: (dayMatches: T[]) => MatchDayCalendarMarker | null;
   scheduleDotColor?: string;
-  /** Naslov iznad liste za izabrani dan (podrazumevano „Utakmice za …”). */
   listHeading?: (day: Date) => string;
 };
 
 const now = () => new Date();
+
+function CalendarDayMarker({
+  marker,
+  selected,
+  dotFill,
+  mutedColor,
+  statusColors,
+}: {
+  marker: MatchDayCalendarMarker;
+  selected: boolean;
+  dotFill: string;
+  mutedColor: string;
+  statusColors: MatchCalendarStatusColors;
+}) {
+  const tint = (c: string) => (selected ? '#fff' : c);
+
+  switch (marker) {
+    case 'objection_pending':
+      return (
+        <ThemedText style={[styles.bangMarker, { color: tint('#c53939') }]}>!</ThemedText>
+      );
+    case 'played_ok':
+      return (
+        <MaterialIcons name="check" size={14} color={tint('#2a9d4a')} style={styles.iconMarker} />
+      );
+    case 'played_resolved':
+      return (
+        <MaterialIcons name="check" size={14} color={tint('#c9a227')} style={styles.iconMarker} />
+      );
+    case 'iscekivanje':
+      return (
+        <MaterialIcons
+          name="notifications"
+          size={14}
+          color={tint(statusColors.iscekivanje)}
+          style={styles.iconMarker}
+        />
+      );
+    case 'nema_uslova':
+    case 'star':
+      return (
+        <MaterialIcons
+          name="star"
+          size={14}
+          color={tint(statusColors.nemaUslova)}
+          style={styles.starMarker}
+        />
+      );
+    case 'uzivo': {
+      const blue = tint(CALENDAR_LIVE_BLUE);
+      return (
+        <View style={[styles.liveRing, { borderColor: blue }]}>
+          <View style={[styles.liveDot, { backgroundColor: blue }]} />
+        </View>
+      );
+    }
+    case 'neodigrana':
+      return (
+        <ThemedText style={[styles.xMarker, { color: tint(mutedColor) }]}>×</ThemedText>
+      );
+    case 'dot':
+    default:
+      return (
+        <View
+          style={[
+            styles.dot,
+            {
+              backgroundColor: selected
+                ? '#fff'
+                : scheduleDotColorUsesAccent(dotFill)
+                  ? statusColors.zakazana
+                  : dotFill,
+            },
+          ]}
+        />
+      );
+  }
+}
+
+function scheduleDotColorUsesAccent(dotFill: string): boolean {
+  return dotFill === ActionAccentHex;
+}
 
 export function MatchTimetableCalendar<T extends TimetableMatch>({
   matches,
@@ -42,10 +147,15 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
   onMatchPress,
   emptyDayMessage = 'Nema zakazanih utakmica za ovaj dan.',
   matchesNeedAttention,
+  resolveDayMarker,
   scheduleDotColor,
   listHeading,
 }: Props<T>) {
   const { colors, colorScheme } = useAppTheme();
+  const statusColors = useMemo(
+    () => getMatchCalendarStatusColors(colorScheme),
+    [colorScheme],
+  );
   const today = useMemo(() => startOfLocalDay(now()), []);
   const [visibleYear, setVisibleYear] = useState(today.getFullYear());
   const [visibleMonthIndex, setVisibleMonthIndex] = useState(today.getMonth());
@@ -72,37 +182,11 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
       arr.push(m);
       map.set(k, arr);
     }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+    for (const [k, arr] of map.entries()) {
+      map.set(k, sortTimetableDayMatches(arr));
     }
     return map;
   }, [matches]);
-
-  const daysWithDot = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of matches) {
-      const d = parseIsoToLocalDay(m.scheduled_at);
-      if (!d) continue;
-      if (d.getFullYear() === visibleYear && d.getMonth() === visibleMonthIndex) {
-        set.add(ymdKey(d));
-      }
-    }
-    return set;
-  }, [matches, visibleYear, visibleMonthIndex]);
-
-  const daysWithStar = useMemo(() => {
-    if (!matchesNeedAttention) return new Set<string>();
-    const set = new Set<string>();
-    for (const m of matches) {
-      if (!matchesNeedAttention(m)) continue;
-      const d = parseIsoToLocalDay(m.scheduled_at);
-      if (!d) continue;
-      if (d.getFullYear() === visibleYear && d.getMonth() === visibleMonthIndex) {
-        set.add(ymdKey(d));
-      }
-    }
-    return set;
-  }, [matches, matchesNeedAttention, visibleYear, visibleMonthIndex]);
 
   const selectedKey = ymdKey(selectedDay);
   const dayMatches = matchesByYmd.get(selectedKey) ?? [];
@@ -145,6 +229,16 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
   const borderMuted = colorScheme === 'dark' ? '#555' : '#ccc';
   const cellBgOther = colorScheme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
 
+  const resolveMarker = (dayMatchesOnCell: T[]): MatchDayCalendarMarker | null => {
+    if (resolveDayMarker) {
+      return resolveDayMarker(dayMatchesOnCell);
+    }
+    const fromStatus = resolveDayMarkerFromMatches(dayMatchesOnCell);
+    if (fromStatus) return fromStatus;
+    if (matchesNeedAttention?.(dayMatchesOnCell[0]!)) return 'star';
+    return dayMatchesOnCell.length > 0 ? 'dot' : null;
+  };
+
   return (
     <ThemedView style={styles.wrap}>
       <ThemedView style={[styles.monthRow, { borderColor: borderMuted }]}>
@@ -174,8 +268,8 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
         {Array.from({ length: dim }, (_, i) => {
           const dayNum = i + 1;
           const key = ymdKey(new Date(visibleYear, visibleMonthIndex, dayNum));
-          const hasDot = daysWithDot.has(key);
-          const hasStar = !!(matchesNeedAttention && daysWithStar.has(key));
+          const dayMatchesOnCell = matchesByYmd.get(key) ?? [];
+          const marker = resolveMarker(dayMatchesOnCell);
           const sel = isSelectedCell(dayNum);
           const isToday = isTodayCell(dayNum);
 
@@ -201,19 +295,13 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
                 ]}>
                 {dayNum}
               </ThemedText>
-              {hasStar ? (
-                <MaterialIcons
-                  name="star"
-                  size={14}
-                  color={sel ? '#fff' : ActionAccentHex}
-                  style={styles.starMarker}
-                />
-              ) : hasDot ? (
-                <View
-                  style={[
-                    styles.dot,
-                    { backgroundColor: sel ? '#fff' : dotFill },
-                  ]}
+              {marker ? (
+                <CalendarDayMarker
+                  marker={marker}
+                  selected={sel}
+                  dotFill={dotFill}
+                  mutedColor={colors.textSecondary}
+                  statusColors={statusColors}
                 />
               ) : (
                 <View style={styles.dotPlaceholder} />
@@ -274,7 +362,20 @@ const styles = StyleSheet.create({
   },
   dayNum: { fontSize: 15 },
   dot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
+  liveRing: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  liveDot: { width: 4, height: 4, borderRadius: 2 },
   starMarker: { marginTop: 1 },
+  iconMarker: { marginTop: 1 },
+  bangMarker: { marginTop: -1, fontSize: 15, fontWeight: '800', lineHeight: 16 },
+  xMarker: { marginTop: -2, fontSize: 15, fontWeight: '800', lineHeight: 16 },
   dotPlaceholder: { height: 5, marginTop: 2 },
   listHeading: { marginTop: 4 },
   empty: { opacity: 0.85, fontStyle: 'italic' },

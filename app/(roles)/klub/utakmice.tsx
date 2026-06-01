@@ -1,14 +1,28 @@
 import { ActionAccentHex } from '@/constants/theme';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
-import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
-import { router, useFocusEffect } from 'expo-router';
-import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
+import { MatchCalendarLegend } from '@/components/shared/match-calendar-legend';
+import {
+  MatchRichCard,
+  formatScore,
+  playedOutcomeLetter,
+  type MatchRichTheme,
+} from '@/components/shared/match-rich-card';
+import { SearchableSelect, type SelectOption } from '@/components/shared/searchable-select';
 import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { getMyClubContext } from '@/lib/club-context';
+import {
+  formatMatchDisplayStatus,
+  isMatchDisplayFinished,
+  isMatchDisplayLive,
+} from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type MatchRow = {
@@ -20,6 +34,7 @@ type MatchRow = {
   scheduled_at: string;
   venue: string | null;
   status: string;
+  display_status?: string | null;
   home_score: number | null;
   away_score: number | null;
   home_club_name?: string | null;
@@ -52,7 +67,41 @@ type MatchPayload = {
   away: MatchRow[];
 };
 
+function formatMatchTimeSr(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('sr-Latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function scorerLabel(s: ScorerRow): string {
+  return (
+    s.display_name?.trim() ||
+    [s.first_name, s.last_name].filter(Boolean).join(' ').trim() ||
+    (s.username ? `@${s.username}` : '') ||
+    'Korisnik'
+  );
+}
+
 export default function KlubUtakmiceScreen() {
+  const { colors } = useAppTheme();
+  const matchRichTheme = useMemo<MatchRichTheme>(
+    () => ({
+      surfaceMuted: colors.surfaceMuted,
+      borderStrong: colors.borderStrong,
+      tint: colors.tint,
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
+      danger: colors.danger,
+    }),
+    [colors],
+  );
+
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [homeMatches, setHomeMatches] = useState<MatchRow[]>([]);
@@ -92,12 +141,16 @@ export default function KlubUtakmiceScreen() {
         const [hRes, aRes] = await Promise.all([
           supabase
             .from('matches')
-            .select('id, league_id, group_id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
+            .select(
+              'id, league_id, group_id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score',
+            )
             .eq('home_club_id', clubCtx.clubId)
             .order('scheduled_at', { ascending: true }),
           supabase
             .from('matches')
-            .select('id, league_id, group_id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score')
+            .select(
+              'id, league_id, group_id, home_club_id, away_club_id, scheduled_at, venue, status, home_score, away_score',
+            )
             .eq('away_club_id', clubCtx.clubId)
             .order('scheduled_at', { ascending: true }),
         ]);
@@ -143,7 +196,7 @@ export default function KlubUtakmiceScreen() {
               display_name: p.display_name,
               first_name: p.first_name,
               last_name: p.last_name,
-            }))
+            })),
           );
         } else {
           setScorers([]);
@@ -157,10 +210,19 @@ export default function KlubUtakmiceScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData])
+    }, [loadData]),
   );
 
   const scorerMap = useMemo(() => new Map(scorers.map((s) => [s.user_id, s])), [scorers]);
+
+  const scorerOptions = useMemo<SelectOption[]>(
+    () =>
+      scorers.map((s) => ({
+        value: s.user_id,
+        label: scorerLabel(s),
+      })),
+    [scorers],
+  );
 
   const tabMatches = activeTab === 'home' ? homeMatches : awayMatches;
 
@@ -174,7 +236,6 @@ export default function KlubUtakmiceScreen() {
     });
 
     if (rpcErr) {
-      // fallback path if RPC is not deployed yet
       const { error: delErr } = await supabase
         .from('match_officials')
         .delete()
@@ -204,38 +265,141 @@ export default function KlubUtakmiceScreen() {
               scorer_user_id: userId,
               scorer_display_name:
                 scorerMap.get(userId)?.display_name ||
-                [scorerMap.get(userId)?.first_name, scorerMap.get(userId)?.last_name].filter(Boolean).join(' ') ||
+                [scorerMap.get(userId)?.first_name, scorerMap.get(userId)?.last_name]
+                  .filter(Boolean)
+                  .join(' ') ||
                 null,
               scorer_username: scorerMap.get(userId)?.username ?? null,
             }
-          : m
-      )
+          : m,
+      ),
     );
     setAssigningMatchId(null);
   };
 
-  const formatDate = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return iso;
-    }
-  };
-
   useScreenPullRefresh(loadData);
+
+  const renderMatch = (m: MatchRow) => {
+    const isHome = activeTab === 'home';
+    const side = isHome ? ('home' as const) : ('away' as const);
+    const opponentRaw = isHome ? m.away_club_name : m.home_club_name;
+    const oppLabel = opponentRaw?.trim() ? opponentRaw.trim() : '—';
+    const statusLabel = formatMatchDisplayStatus(m);
+    const timeStr = formatMatchTimeSr(m.scheduled_at);
+    const finishedLike = isMatchDisplayFinished(m);
+    const matchHref = `/klub/utakmica/${m.id}` as never;
+
+    if (!isHome) {
+      return finishedLike ? (
+        <MatchRichCard
+          variant="club_played"
+          theme={matchRichTheme}
+          oppName={oppLabel}
+          scheduledIso={m.scheduled_at}
+          scoreLine={formatScore(m.home_score, m.away_score)}
+          outcome={playedOutcomeLetter(side, m.home_score, m.away_score, null)}
+          onPress={() => router.push(matchHref)}
+        />
+      ) : (
+        <MatchRichCard
+          variant="club_upcoming"
+          theme={matchRichTheme}
+          oppName={oppLabel}
+          scheduledIso={m.scheduled_at}
+          venue={m.venue}
+          status={statusLabel}
+          homeScore={m.home_score}
+          awayScore={m.away_score}
+          matchTime={timeStr}
+          onPress={() => router.push(matchHref)}
+        />
+      );
+    }
+
+    const scorerName =
+      m.scorer_display_name ||
+      (m.scorer_username ? `@${m.scorer_username}` : null) ||
+      (m.scorer_user_id ? scorerLabel(scorerMap.get(m.scorer_user_id)!) : null);
+
+    const scorerFooter =
+      finishedLike || isMatchDisplayLive(m) ? (
+        <>
+          <ThemedText style={[styles.footerLbl, { color: colors.textSecondary }]}>Zapisničar</ThemedText>
+          <ThemedText style={{ color: colors.text }}>{scorerName ?? 'Nije dodeljen'}</ThemedText>
+          {isMatchDisplayLive(m) ? (
+            <ThemedText style={[styles.scorerHint, { color: colors.textSecondary }]}>
+              Utakmica je uživo — zapisničar se ne menja.
+            </ThemedText>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <SearchableSelect
+            label="Zapisničar"
+            placeholder={scorers.length === 0 ? 'Nema zapisničara u klubu' : 'Izaberi zapisničara'}
+            sheetTitle="Zapisničar utakmice"
+            value={m.scorer_user_id ?? null}
+            options={scorerOptions}
+            onChange={(uid) => {
+              if (uid) void assignScorer(m.id, uid);
+            }}
+            clearable={false}
+            containerStyle={styles.scorerSelect}
+          />
+          {assigningMatchId === m.id ? (
+            <ActivityIndicator color={colors.tint} style={styles.scorerBusy} />
+          ) : null}
+        </>
+      );
+
+    return finishedLike ? (
+      <MatchRichCard
+        variant="club_played"
+        theme={matchRichTheme}
+        oppName={oppLabel}
+        scheduledIso={m.scheduled_at}
+        scoreLine={formatScore(m.home_score, m.away_score)}
+        outcome={playedOutcomeLetter(side, m.home_score, m.away_score, null)}
+        onPress={() => router.push(matchHref)}
+        footer={scorerFooter}
+      />
+    ) : (
+      <MatchRichCard
+        variant="club_upcoming"
+        theme={matchRichTheme}
+        oppName={oppLabel}
+        scheduledIso={m.scheduled_at}
+        venue={m.venue}
+        status={statusLabel}
+        homeScore={m.home_score}
+        awayScore={m.away_score}
+        matchTime={timeStr}
+        onPress={() => router.push(matchHref)}
+        footer={scorerFooter}
+      />
+    );
+  };
 
   return (
     <RefreshableScrollView contentContainerStyle={styles.container}>
       <ThemedView style={styles.tabRow}>
         <Pressable
-          style={[styles.tabButton, activeTab === 'home' && styles.tabButtonActive]}
+          style={[
+            styles.tabButton,
+            { borderColor: colors.borderStrong },
+            activeTab === 'home' && styles.tabButtonActive,
+          ]}
           onPress={() => setActiveTab('home')}>
           <ThemedText style={activeTab === 'home' ? styles.tabButtonActiveText : undefined}>
-            Domacin ({homeMatches.length})
+            Domaćin ({homeMatches.length})
           </ThemedText>
         </Pressable>
         <Pressable
-          style={[styles.tabButton, activeTab === 'away' && styles.tabButtonActive]}
+          style={[
+            styles.tabButton,
+            { borderColor: colors.borderStrong },
+            activeTab === 'away' && styles.tabButtonActive,
+          ]}
           onPress={() => setActiveTab('away')}>
           <ThemedText style={activeTab === 'away' ? styles.tabButtonActiveText : undefined}>
             Gost ({awayMatches.length})
@@ -243,78 +407,26 @@ export default function KlubUtakmiceScreen() {
         </Pressable>
       </ThemedView>
 
-      {loading ? <ActivityIndicator /> : null}
+      {loading ? <ActivityIndicator color={colors.tint} /> : null}
       {errorMessage ? (
-        <ThemedView style={styles.card}>
+        <ThemedView style={[styles.errorCard, { borderColor: colors.borderStrong }]}>
           <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
         </ThemedView>
       ) : null}
 
       {!loading && activeTab === 'home' && homeMatches.length === 0 ? (
-        <ThemedText>Nema domacih utakmica.</ThemedText>
+        <ThemedText style={{ color: colors.textSecondary }}>Nema domaćih utakmica.</ThemedText>
       ) : null}
       {!loading && activeTab === 'away' && awayMatches.length === 0 ? (
-        <ThemedText>Nema gostujucih utakmica.</ThemedText>
+        <ThemedText style={{ color: colors.textSecondary }}>Nema gostujućih utakmica.</ThemedText>
       ) : null}
 
       {!loading && tabMatches.length > 0 ? (
-        <MatchTimetableCalendar
-          matches={tabMatches}
-          onMatchPress={(m) => router.push(`/klub/utakmica/${m.id}` as never)}
-          renderMatch={(m) =>
-            activeTab === 'home' ? (
-              <ThemedView style={styles.card}>
-                <ThemedText type="defaultSemiBold">vs {m.away_club_name ?? `#${m.away_club_id}`}</ThemedText>
-                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
-                <ThemedText>
-                  Rezultat:{' '}
-                  {m.home_score != null && m.away_score != null
-                    ? `${m.home_score}:${m.away_score}`
-                    : 'nije upisano'}
-                </ThemedText>
-                <ThemedText>
-                  Zapisnicar:{' '}
-                  {m.scorer_display_name || (m.scorer_username ? `@${m.scorer_username}` : 'nije dodeljen')}
-                </ThemedText>
-
-                <ThemedText type="defaultSemiBold">Dodeli zapisnicara:</ThemedText>
-                <ThemedView style={styles.chipRow}>
-                  {scorers.map((s) => {
-                    const label =
-                      s.display_name ||
-                      [s.first_name, s.last_name].filter(Boolean).join(' ') ||
-                      s.username ||
-                      'Korisnik';
-                    const isActive = m.scorer_user_id === s.user_id;
-                    return (
-                      <Pressable
-                        key={`${m.id}-${s.user_id}`}
-                        style={[styles.chip, isActive && styles.chipActive]}
-                        onPress={() => assignScorer(m.id, s.user_id)}
-                        disabled={assigningMatchId === m.id}>
-                        <ThemedText style={isActive ? styles.chipActiveText : undefined}>{label}</ThemedText>
-                      </Pressable>
-                    );
-                  })}
-                </ThemedView>
-                {assigningMatchId === m.id ? <ActivityIndicator /> : null}
-              </ThemedView>
-            ) : (
-              <ThemedView style={styles.card}>
-                <ThemedText type="defaultSemiBold">@ {m.home_club_name ?? `#${m.home_club_id}`}</ThemedText>
-                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-                <ThemedText>Mesto: {m.venue ?? '-'}</ThemedText>
-                <ThemedText>
-                  Rezultat:{' '}
-                  {m.home_score != null && m.away_score != null
-                    ? `${m.home_score}:${m.away_score}`
-                    : 'nije upisano'}
-                </ThemedText>
-              </ThemedView>
-            )
-          }
-        />
+        <>
+          <ThemedText type="subtitle">Raspored utakmica</ThemedText>
+          <MatchCalendarLegend />
+          <MatchTimetableCalendar matches={tabMatches} renderMatch={renderMatch} />
+        </>
       ) : null}
     </RefreshableScrollView>
   );
@@ -322,26 +434,19 @@ export default function KlubUtakmiceScreen() {
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
   tabRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   tabButton: {
     borderWidth: 1,
-    borderColor: '#666',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   tabButtonActive: { backgroundColor: ActionAccentHex, borderColor: ActionAccentHex },
   tabButtonActiveText: { color: '#fff', fontWeight: '600' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  chipActive: { backgroundColor: ActionAccentHex, borderColor: ActionAccentHex },
-  chipActiveText: { color: '#fff', fontWeight: '600' },
+  footerLbl: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: '600' },
+  scorerSelect: { width: '100%' },
+  scorerBusy: { alignSelf: 'flex-start' },
+  scorerHint: { fontSize: 12, fontStyle: 'italic' },
+  errorCard: { borderWidth: 1, borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
 });

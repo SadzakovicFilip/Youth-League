@@ -9,6 +9,7 @@ import { MatchTimetableCalendar } from '@/components/shared/match-timetable-cale
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus, isMatchDisplayLive } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type MatchRow = {
@@ -22,6 +23,7 @@ type MatchRow = {
   away_club_name: string | null;
   home_score: number | null;
   away_score: number | null;
+  display_status?: string | null;
 };
 
 function formatDate(iso: string | null | undefined) {
@@ -102,8 +104,9 @@ export default function ZapisnicarHomeScreen() {
           matches={matches}
           onMatchPress={(m) => router.push(`/zapisnicar/utakmica/${m.id}` as never)}
           renderMatch={(m) => {
-            const isLive = m.status === 'live';
-            const isFinished = m.status === 'finished';
+            const statusLabel = formatMatchDisplayStatus(m);
+            const isLive = isMatchDisplayLive(m);
+            const isFinished = statusLabel === 'ZAVRŠENA';
             return (
               <ThemedView
                 style={[styles.matchCard, isLive && styles.matchCardLive, isFinished && styles.matchCardFinished]}>
@@ -119,7 +122,7 @@ export default function ZapisnicarHomeScreen() {
                       isLive && styles.statusLive,
                       isFinished && styles.statusFinished,
                     ]}>
-                    {m.status}
+                    {statusLabel}
                   </ThemedText>
                 </ThemedText>
                 {m.home_score !== null && m.away_score !== null ? (

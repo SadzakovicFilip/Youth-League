@@ -1,41 +1,38 @@
-import {
-  MatchPublicDetailView,
-  type MatchPublicDetailViewHandle,
-} from '@/components/shared/match-public-detail-view';
-import { ScreenShell } from '@/components/screen-shell';
+import { FinishedMatchPreferScorebook } from '@/components/shared/finished-match-prefer-scorebook';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { ScreenShell } from '@/components/screen-shell';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useRef } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
-import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 export default function MatchDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const matchId = Number(id);
-  const detailRef = useRef<MatchPublicDetailViewHandle>(null);
-  useScreenPullRefresh(
-    useCallback(() => detailRef.current?.refresh() ?? Promise.resolve(), []),
-  );
 
   return (
     <ScreenShell>
-      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Pressable style={styles.back} onPress={() => router.back()}>
-          <ThemedText style={styles.backText}>← Nazad</ThemedText>
-        </Pressable>
-        <ThemedView style={styles.card}>
-          <MatchPublicDetailView ref={detailRef} matchId={matchId} />
-        </ThemedView>
-      </RefreshableScrollView>
+      <View style={styles.wrapper}>
+        <View style={styles.body}>
+          <FinishedMatchPreferScorebook
+            matchId={matchId}
+            publicTopSlot={
+              <Pressable style={styles.back} onPress={() => router.back()}>
+                <ThemedText style={styles.backText}>← Nazad</ThemedText>
+              </Pressable>
+            }
+          />
+        </View>
+      </View>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 12, padding: 16, paddingBottom: 32 },
-  back: { alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 4 },
+  wrapper: { flex: 1 },
+  body: { flex: 1 },
+  back: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
   backText: { fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 10, padding: 12, gap: 8 },
 });

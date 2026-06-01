@@ -5,6 +5,7 @@ import { MatchRichCard, formatScore, playedOutcomeLetter, type MatchRichTheme } 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppTheme } from '@/contexts/app-theme-context';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 export type ClubPublicMatchRow = {
@@ -103,7 +104,7 @@ export function ClubPublicMatchesView({ clubId }: ClubPublicMatchesViewProps) {
                   oppName={opp}
                   scheduledIso={m.scheduled_at}
                   venue={m.venue}
-                  status={m.status}
+                  status={formatMatchDisplayStatus(m)}
                   homeScore={m.home_score}
                   awayScore={m.away_score}
                 />

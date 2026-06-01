@@ -28,6 +28,7 @@ import { licenseValidityFromMember } from '@/lib/license-valid-until';
 import { matchDetailHrefFromPathname } from '@/lib/match-detail-href';
 import { personDisplayName } from '@/lib/person-display-name';
 import { overlayUserLicensesOnTeam } from '@/lib/team-license-overlay';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type TeamMember = {
@@ -150,9 +151,14 @@ export function ClubTeamView({
 
     const rpcPlayers = (payload.players ?? []) as TeamMember[];
     const rpcTrainers = (payload.trainers ?? []) as TeamMember[];
-    const mergedAll = await overlayUserLicensesOnTeam([...rpcPlayers, ...rpcTrainers]);
-    setPlayers(mergedAll.slice(0, rpcPlayers.length));
-    setTrainers(mergedAll.slice(rpcPlayers.length));
+    if (showLicenseRow) {
+      const mergedAll = await overlayUserLicensesOnTeam([...rpcPlayers, ...rpcTrainers]);
+      setPlayers(mergedAll.slice(0, rpcPlayers.length));
+      setTrainers(mergedAll.slice(rpcPlayers.length));
+    } else {
+      setPlayers(rpcPlayers);
+      setTrainers(rpcTrainers);
+    }
     setLoading(false);
   }, [clubId]);
 
@@ -418,7 +424,7 @@ export function ClubTeamView({
                         oppName={opp}
                         scheduledIso={m.scheduled_at}
                         venue={m.venue}
-                        status={m.status}
+                        status={formatMatchDisplayStatus(m)}
                         homeScore={m.home_score}
                         awayScore={m.away_score}
                       />

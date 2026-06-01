@@ -1,14 +1,23 @@
 import { ActionAccentHex } from '@/constants/theme';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useAppTheme } from '@/contexts/app-theme-context';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import { MatchScorebookDetailView } from '@/components/match-scorebook-detail-view';
+import { DelegatMatchObjectionBoxScorePanel } from '@/components/delegat/delegat-match-objection-box-score-panel';
+import {
+  MatchRichCard,
+  type MatchRichTheme,
+} from '@/components/shared/match-rich-card';
+import { SearchableSelect, SelectOption } from '@/components/shared/searchable-select';
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+import { formatMatchDisplayStatus, isMatchDisplayLive } from '@/lib/match-display-status';
 
 type Conditions = {
   match_id: number;
@@ -36,6 +45,8 @@ type OfficialRef = {
   username: string | null;
 };
 
+type SudijaRow = OfficialRef & { phone: string | null };
+
 type MatchInfo = {
   id: number;
   league_id: number;
@@ -50,20 +61,7 @@ type MatchInfo = {
   away_club_name: string | null;
   home_score: number | null;
   away_score: number | null;
-};
-
-type MatchObjection = {
-  id: number;
-  club_id: number;
-  club_name: string | null;
-  reason: string;
-  created_at: string;
-  created_by: string;
-  submitter_display: string | null;
-  status: 'pending' | 'accepted' | 'rejected' | string;
-  resolved_at: string | null;
-  resolved_by: string | null;
-  resolver_display: string | null;
+  display_status?: string | null;
 };
 
 type Payload = {
@@ -71,12 +69,13 @@ type Payload = {
   conditions: Conditions;
   sudije: OfficialRef[];
   zapisnicar: OfficialRef | null;
-  objections?: MatchObjection[];
 };
+
+const GREEN = '#2a9d4a';
+const RED = '#c53939';
 
 function officialLabel(o: OfficialRef | null | undefined) {
   if (!o) return '—';
-
   return (
     o.display_name ||
     [o.first_name, o.last_name].filter(Boolean).join(' ') ||
@@ -85,25 +84,67 @@ function officialLabel(o: OfficialRef | null | undefined) {
   );
 }
 
+function sudijeToOptions(sudije: SudijaRow[]): SelectOption[] {
+  return sudije.map((s) => ({
+    value: s.user_id,
+    label: officialLabel(s),
+    sublabel: s.phone ? `@${s.username ?? '-'} · ${s.phone}` : `@${s.username ?? '-'}`,
+  }));
+}
+
 function formatDate(iso: string | null | undefined) {
-  if (!iso) return '-';
+  if (!iso) return '—';
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
+    return d.toLocaleString('sr-Latn', { dateStyle: 'medium', timeStyle: 'short' });
   } catch {
     return iso;
   }
 }
 
+function formatMatchTimeSr(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('sr-Latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function clubLabel(name: string | null, id: number): string {
+  return name?.trim() ? name.trim() : `#${id}`;
+}
+
+function matchHeadline(m: MatchInfo): string {
+  return `${clubLabel(m.home_club_name, m.home_club_id)} — ${clubLabel(m.away_club_name, m.away_club_id)}`;
+}
+
 export default function DelegatMatchDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const matchId = Number(id);
+  const { colors } = useAppTheme();
+  const matchRichTheme = useMemo<MatchRichTheme>(
+    () => ({
+      surfaceMuted: colors.surfaceMuted,
+      borderStrong: colors.borderStrong,
+      tint: colors.tint,
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
+      danger: colors.danger,
+    }),
+    [colors],
+  );
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [savingSudije, setSavingSudije] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
-  const [objectionBusyId, setObjectionBusyId] = useState<number | null>(null);
+  const [leagueSudije, setLeagueSudije] = useState<SudijaRow[]>([]);
 
   const load = useCallback(async () => {
     if (!Number.isFinite(matchId)) {
@@ -121,7 +162,17 @@ export default function DelegatMatchDetailScreen() {
       setLoading(false);
       return;
     }
-    setData(rpcData as Payload);
+    const payload = rpcData as Payload;
+    setData(payload);
+
+    const { data: sudRows, error: sudErr } = await supabase.rpc('get_league_sudije', {
+      p_league_id: payload.match.league_id,
+    });
+    if (sudErr) {
+      setErrorMessage(sudErr.message);
+    } else {
+      setLeagueSudije((sudRows ?? []) as SudijaRow[]);
+    }
     setLoading(false);
   }, [matchId]);
 
@@ -130,7 +181,7 @@ export default function DelegatMatchDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
   const startMatch = async () => {
@@ -157,238 +208,291 @@ export default function DelegatMatchDetailScreen() {
     await load();
   };
 
-  const resolveObjection = async (objectionId: number, resolution: 'accepted' | 'rejected') => {
-    setObjectionBusyId(objectionId);
+  const onChangeSudijaSlot = async (slotIndex: 0 | 1, newUserId: string | null) => {
+    if (!data) return;
+    setSavingSudije(true);
     setErrorMessage('');
-    const { error } = await supabase.rpc('resolve_match_objection', {
-      p_objection_id: objectionId,
-      p_resolution: resolution,
-    });
-    setObjectionBusyId(null);
-    if (error) {
-      setErrorMessage(error.message);
+
+    const current = data.sudije[slotIndex]?.user_id ?? null;
+    const other = data.sudije[slotIndex === 0 ? 1 : 0]?.user_id ?? null;
+
+    if (newUserId && newUserId === other) {
+      setErrorMessage('Isti sudija ne može biti dodeljen dva puta na istu utakmicu.');
+      setSavingSudije(false);
       return;
     }
+
+    if (current === newUserId) {
+      setSavingSudije(false);
+      return;
+    }
+
+    if (current) {
+      const { error: delErr } = await supabase
+        .from('match_officials')
+        .delete()
+        .eq('match_id', matchId)
+        .eq('user_id', current)
+        .eq('role', 'sudija');
+      if (delErr) {
+        setErrorMessage(`Uklanjanje sudije: ${delErr.message}`);
+        setSavingSudije(false);
+        return;
+      }
+    }
+
+    if (newUserId) {
+      const { error: insErr } = await supabase.from('match_officials').insert({
+        match_id: matchId,
+        user_id: newUserId,
+        role: 'sudija',
+      });
+      if (insErr) {
+        setErrorMessage(`Dodela sudije: ${insErr.message}`);
+        setSavingSudije(false);
+        await load();
+        return;
+      }
+    }
+
     await load();
+    setSavingSudije(false);
   };
 
   const c = data?.conditions;
-  const allOk =
-    !!c && c.cond_rosters && c.cond_sudije && c.cond_zapisnicar && c.cond_time;
-  const isLive = c?.status === 'live';
-  const isFinished = c?.status === 'finished';
+  const displayStatus = data
+    ? formatMatchDisplayStatus({
+        status: data.match.status,
+        scheduled_at: data.match.scheduled_at,
+        display_status: data.match.display_status,
+        cond_rosters: c?.cond_rosters,
+        cond_sudije: c?.cond_sudije,
+        cond_zapisnicar: c?.cond_zapisnicar,
+      })
+    : '';
+  const isLive = isMatchDisplayLive({
+    status: data?.match.status,
+    scheduled_at: data?.match.scheduled_at,
+    display_status: displayStatus,
+    cond_rosters: c?.cond_rosters,
+    cond_sudije: c?.cond_sudije,
+    cond_zapisnicar: c?.cond_zapisnicar,
+  });
+  const isFinished = c?.status === 'finished' || displayStatus === 'ZAVRŠENA';
+  const isScheduled = !isLive && !isFinished;
+  const allOk = !!c && c.cond_rosters && c.cond_sudije && c.cond_zapisnicar && c.cond_time;
+  const sudijaOpts = useMemo(() => sudijeToOptions(leagueSudije), [leagueSudije]);
+  const slot0 = data?.sudije[0]?.user_id ?? null;
+  const slot1 = data?.sudije[1]?.user_id ?? null;
+  const headline = data ? matchHeadline(data.match) : '';
+
+  if (!loading && data && isFinished) {
+    return (
+      <ScreenShell>
+        <View style={styles.fill}>
+          <MatchScorebookDetailView
+            matchId={matchId}
+            boxScoreBelowHero={<DelegatMatchObjectionBoxScorePanel matchId={matchId} />}
+          />
+        </View>
+      </ScreenShell>
+    );
+  }
 
   return (
     <ScreenShell>
       <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <ThemedText style={styles.backText}>← Nazad</ThemedText>
-      </Pressable>
-      <ThemedText type="title">Utakmica</ThemedText>
-
-      {loading ? <ActivityIndicator /> : null}
-      {errorMessage ? (
-        <ThemedView style={styles.errorCard}>
-          <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-        </ThemedView>
-      ) : null}
-
-      {data ? (
-        <>
-          <ThemedView style={styles.card}>
-            <ThemedText type="defaultSemiBold">
-              {data.match.home_club_name ?? '-'} vs {data.match.away_club_name ?? '-'}
-            </ThemedText>
-            <ThemedText>Termin: {formatDate(data.match.scheduled_at)}</ThemedText>
-            {data.match.venue ? <ThemedText>Mesto: {data.match.venue}</ThemedText> : null}
-            <ThemedText>
-              Status:{' '}
-              <ThemedText
-                style={[
-                  isLive && styles.statusLive,
-                  isFinished && styles.statusFinished,
-                ]}>
-                {data.match.status}
-              </ThemedText>
-            </ThemedText>
-            {data.match.home_score !== null && data.match.away_score !== null ? (
-              <ThemedText>
-                Rezultat: {data.match.home_score} : {data.match.away_score}
-              </ThemedText>
-            ) : null}
-            {data.match.started_at ? (
-              <ThemedText style={styles.muted}>Pocela: {formatDate(data.match.started_at)}</ThemedText>
-            ) : null}
-            {data.match.ended_at ? (
-              <ThemedText style={styles.muted}>Zavrsena: {formatDate(data.match.ended_at)}</ThemedText>
-            ) : null}
+        {loading ? <ActivityIndicator color={colors.tint} /> : null}
+        {errorMessage ? (
+          <ThemedView style={[styles.errorCard, { borderColor: colors.borderStrong }]}>
+            <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
           </ThemedView>
+        ) : null}
 
-          <ThemedText type="subtitle">Uslovi za pocetak</ThemedText>
+        {data ? (
+          <>
+            {isLive ? (
+              <MatchRichCard
+                variant="club_upcoming"
+                theme={matchRichTheme}
+                oppName={headline}
+                headline={headline}
+                scheduledIso={data.match.scheduled_at}
+                venue={data.match.venue}
+                status={displayStatus}
+                homeScore={data.match.home_score}
+                awayScore={data.match.away_score}
+                matchTime={formatMatchTimeSr(data.match.scheduled_at)}
+              />
+            ) : (
+              <MatchRichCard
+                variant="club_upcoming"
+                theme={matchRichTheme}
+                oppName={headline}
+                headline={headline}
+                scheduledIso={data.match.scheduled_at}
+                venue={data.match.venue}
+                status={displayStatus}
+                homeScore={data.match.home_score}
+                awayScore={data.match.away_score}
+                matchTime={formatMatchTimeSr(data.match.scheduled_at)}
+              />
+            )}
 
-          <ConditionRow
-            ok={c!.cond_rosters}
-            label={`Sastavi oba tima (${c!.min_roster ?? 5}-${c!.max_roster ?? 12} igraca) — ${c!.home_roster_count}/${c!.max_roster ?? 12} : ${c!.away_roster_count}/${c!.max_roster ?? 12}`}
-          />
-          <ConditionRow
-            ok={c!.cond_sudije}
-            label={`Dodeljene 2 sudije — ${c!.sudije_count}/2`}
-          />
-          <ConditionRow
-            ok={c!.cond_zapisnicar}
-            label={`Dodeljen zapisnicar — ${c!.zapisnicar_count}/1`}
-          />
-          <ConditionRow
-            ok={c!.cond_time}
-            label={`Vreme pocetka (${formatDate(c!.scheduled_at)}) je prosao`}
-          />
-
-          {data.sudije.length > 0 ? (
-            <ThemedView style={styles.card}>
-              <ThemedText type="defaultSemiBold">Sudije</ThemedText>
-              {data.sudije.map((s) => (
-                <ThemedText key={s.user_id}>• {officialLabel(s)}</ThemedText>
-              ))}
-            </ThemedView>
-          ) : null}
-          {data.zapisnicar ? (
-            <ThemedView style={styles.card}>
-              <ThemedText type="defaultSemiBold">Zapisnicar</ThemedText>
-              <ThemedText>• {officialLabel(data.zapisnicar)}</ThemedText>
-            </ThemedView>
-          ) : null}
-
-          {isFinished ? (
-            <ThemedView style={styles.card}>
-              <ThemedText>Utakmica je zavrsena.</ThemedText>
-            </ThemedView>
-          ) : null}
-
-          <ThemedText type="subtitle">Prigovori na zapisnik</ThemedText>
-          {data.objections && data.objections.length > 0 ? (
-            data.objections.map((o) => (
-              <ThemedView key={o.id} style={styles.objectionCard}>
-                <ThemedText type="defaultSemiBold">{o.club_name ?? `Klub #${o.club_id}`}</ThemedText>
-                <ThemedText style={styles.muted}>
-                  Podneo: {o.submitter_display ?? '—'} · {formatDate(o.created_at)}
-                </ThemedText>
-                <ThemedText style={styles.objectionReason}>{o.reason}</ThemedText>
-                <ThemedText
-                  style={[
-                    styles.objectionStatus,
-                    o.status === 'pending' && styles.statusPending,
-                    o.status === 'accepted' && styles.statusAccepted,
-                    o.status === 'rejected' && styles.statusRejected,
-                  ]}>
-                  Status:{' '}
-                  {o.status === 'pending'
-                    ? 'NA CEKANJU'
-                    : o.status === 'accepted'
-                      ? 'USVOJEN'
-                      : o.status === 'rejected'
-                        ? 'ODBIJEN'
-                        : String(o.status).toUpperCase()}
-                </ThemedText>
-                {o.resolved_at ? (
-                  <ThemedText style={styles.muted}>
-                    Odluka: {formatDate(o.resolved_at)}
-                    {o.resolver_display ? ` · ${o.resolver_display}` : ''}
-                  </ThemedText>
-                ) : null}
-                {o.status === 'pending' ? (
-                  objectionBusyId === o.id ? (
-                    <ActivityIndicator style={{ marginTop: 8 }} />
-                  ) : (
-                    <ThemedView style={styles.objectionBtnRow}>
-                      <Pressable
-                        style={[styles.acceptBtn, busy && styles.primaryBtnDisabled]}
-                        onPress={() => resolveObjection(o.id, 'accepted')}
-                        disabled={busy}>
-                        <ThemedText style={styles.primaryBtnText}>USVOJI</ThemedText>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.rejectObjBtn, busy && styles.primaryBtnDisabled]}
-                        onPress={() => resolveObjection(o.id, 'rejected')}
-                        disabled={busy}>
-                        <ThemedText style={styles.primaryBtnText}>ODBIJ</ThemedText>
-                      </Pressable>
-                    </ThemedView>
-                  )
-                ) : null}
-              </ThemedView>
-            ))
-          ) : (
-            <ThemedText style={styles.muted}>Nema podnetih prigovora za ovu utakmicu.</ThemedText>
-          )}
-
-          {!isFinished && !isLive ? (
-            <Pressable
-              style={[styles.primaryBtn, (!allOk || busy) && styles.primaryBtnDisabled]}
-              onPress={startMatch}
-              disabled={!allOk || busy}>
-              {busy ? <ActivityIndicator color="#fff" /> : <ThemedText style={styles.primaryBtnText}>POCNI UTAKMICU</ThemedText>}
-            </Pressable>
-          ) : null}
-
-          {isLive ? (
-            <Pressable
-              style={[styles.dangerBtn, busy && styles.primaryBtnDisabled]}
-              onPress={endMatch}
-              disabled={busy}>
-              {busy ? <ActivityIndicator color="#fff" /> : <ThemedText style={styles.primaryBtnText}>KRAJ UTAKMICE</ThemedText>}
-            </Pressable>
-          ) : null}
-
-          {!allOk && !isLive && !isFinished ? (
-            <ThemedText style={styles.muted}>
-              Dugme POCNI UTAKMICU se omogucuje kada su ispunjeni svi uslovi.
+            <ThemedText type="subtitle" style={{ color: colors.text }}>
+              Uslovi za početak
             </ThemedText>
-          ) : null}
-        </>
-      ) : null}
-    </RefreshableScrollView>
+
+            <ThemedView
+              style={[
+                styles.conditionsCard,
+                {
+                  borderColor: isScheduled && allOk ? GREEN : colors.borderStrong,
+                  backgroundColor: isScheduled && allOk ? `${GREEN}14` : colors.surface,
+                },
+              ]}>
+              <ConditionRow
+                ok={c!.cond_rosters}
+                label={`Sastavi oba tima (${c!.min_roster ?? 5}–${c!.max_roster ?? 12} igrača) — ${c!.home_roster_count}/${c!.max_roster ?? 12} : ${c!.away_roster_count}/${c!.max_roster ?? 12}`}
+              />
+              <ConditionRow
+                ok={c!.cond_sudije}
+                label={`Dodeljene 2 sudije — ${c!.sudije_count}/2`}
+              />
+              <ConditionRow
+                ok={c!.cond_zapisnicar}
+                label={`Dodeljen zapisničar — ${c!.zapisnicar_count}/1`}
+              />
+              <ConditionRow
+                ok={c!.cond_time}
+                label={`Vreme početka (${formatDate(c!.scheduled_at)}) je prošlo`}
+              />
+            </ThemedView>
+
+            <ThemedText type="subtitle" style={{ color: colors.text }}>
+              Sudije
+            </ThemedText>
+
+            {isScheduled ? (
+              <ThemedView style={[styles.panel, { borderColor: colors.borderStrong, backgroundColor: colors.surface }]}>
+                <ThemedView style={styles.selectsRow}>
+                  <View style={styles.selectCell}>
+                    <SearchableSelect
+                      label="Sudija 1"
+                      placeholder="Izaberi sudiju"
+                      options={sudijaOpts}
+                      value={slot0}
+                      disabledValues={slot1 ? [slot1] : []}
+                      onChange={(v) => onChangeSudijaSlot(0, v)}
+                    />
+                  </View>
+                  <View style={styles.selectCell}>
+                    <SearchableSelect
+                      label="Sudija 2"
+                      placeholder="Izaberi sudiju"
+                      options={sudijaOpts}
+                      value={slot1}
+                      disabledValues={slot0 ? [slot0] : []}
+                      onChange={(v) => onChangeSudijaSlot(1, v)}
+                    />
+                  </View>
+                </ThemedView>
+                {savingSudije ? <ActivityIndicator color={colors.tint} /> : null}
+              </ThemedView>
+            ) : (
+              <ThemedView style={[styles.panel, { borderColor: colors.borderStrong, backgroundColor: colors.surface }]}>
+                {data.sudije.length > 0 ? (
+                  data.sudije.map((s) => (
+                    <ThemedText key={s.user_id} style={{ color: colors.text }}>
+                      • {officialLabel(s)}
+                    </ThemedText>
+                  ))
+                ) : (
+                  <ThemedText style={{ color: colors.textSecondary }}>Nisu dodeljene.</ThemedText>
+                )}
+              </ThemedView>
+            )}
+
+            {data.zapisnicar ? (
+              <>
+                <ThemedText type="subtitle" style={{ color: colors.text }}>
+                  Zapisničar
+                </ThemedText>
+                <ThemedView style={[styles.panel, { borderColor: colors.borderStrong, backgroundColor: colors.surface }]}>
+                  <ThemedText style={{ color: colors.text }}>• {officialLabel(data.zapisnicar)}</ThemedText>
+                </ThemedView>
+              </>
+            ) : null}
+
+            {isLive ? (
+              <View style={styles.liveScoreWrap}>
+                <MatchScorebookDetailView matchId={matchId} />
+              </View>
+            ) : null}
+
+            {isScheduled ? (
+              <Pressable
+                style={[styles.primaryBtn, (!allOk || busy) && styles.primaryBtnDisabled]}
+                onPress={startMatch}
+                disabled={!allOk || busy}>
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <ThemedText style={styles.primaryBtnText}>POČNI UTAKMICU</ThemedText>
+                )}
+              </Pressable>
+            ) : null}
+
+            {isLive ? (
+              <Pressable
+                style={[styles.dangerBtn, busy && styles.primaryBtnDisabled]}
+                onPress={endMatch}
+                disabled={busy}>
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <ThemedText style={styles.primaryBtnText}>KRAJ UTAKMICE</ThemedText>
+                )}
+              </Pressable>
+            ) : null}
+          </>
+        ) : null}
+      </RefreshableScrollView>
     </ScreenShell>
   );
 }
 
 function ConditionRow({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <ThemedView style={[styles.condRow, ok ? styles.condOk : styles.condNok]}>
-      <ThemedText style={styles.condMark}>{ok ? '✓' : '✗'}</ThemedText>
+    <View style={styles.condRow}>
+      <ThemedText style={[styles.condMark, { color: ok ? GREEN : RED }]}>{ok ? '✓' : '✗'}</ThemedText>
       <ThemedText style={styles.condLabel}>{label}</ThemedText>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   container: { gap: 10, padding: 16, paddingBottom: 32 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  backText: { fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 4 },
-  errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
+  panel: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 6 },
+  selectsRow: { flexDirection: 'row', gap: 10 },
+  selectCell: { flex: 1, minWidth: 0 },
+  liveScoreWrap: { height: 480 },
+  errorCard: { borderWidth: 1, borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
-  muted: { color: '#888' },
-  statusLive: { color: ActionAccentHex, fontWeight: '700' },
-  statusFinished: { color: '#666' },
+  conditionsCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+  },
   condRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
   },
-  condOk: { borderColor: '#2a9d4a', backgroundColor: '#eaf7ed' },
-  condNok: { borderColor: '#c53939', backgroundColor: '#fbeaea' },
-  condMark: { fontWeight: '800', fontSize: 18 },
-  condLabel: { flex: 1 },
+  condMark: { fontWeight: '800', fontSize: 16, width: 18 },
+  condLabel: { flex: 1, fontSize: 14 },
   primaryBtn: {
     marginTop: 10,
     backgroundColor: ActionAccentHex,
@@ -404,36 +508,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#c53939',
     borderRadius: 8,
     minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  objectionCard: {
-    borderWidth: 1,
-    borderColor: '#c58939',
-    borderRadius: 8,
-    padding: 12,
-    gap: 6,
-    backgroundColor: '#fffaf2',
-  },
-  objectionReason: { marginTop: 4 },
-  objectionStatus: { fontWeight: '700', marginTop: 4 },
-  statusPending: { color: '#856404' },
-  statusAccepted: { color: '#1b6b2d' },
-  statusRejected: { color: '#8b1a1a' },
-  objectionBtnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  acceptBtn: {
-    flex: 1,
-    backgroundColor: '#2a9d4a',
-    borderRadius: 8,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rejectObjBtn: {
-    flex: 1,
-    backgroundColor: '#c53939',
-    borderRadius: 8,
-    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

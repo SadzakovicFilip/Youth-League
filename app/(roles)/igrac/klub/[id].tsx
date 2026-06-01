@@ -10,6 +10,7 @@ export default function IgracKlubDetailScreen() {
     <ClubTeamView
       clubId={clubId}
       showMemberFees={false}
+      showLicenseRow={false}
       onOpenUser={(userId, cid) =>
         router.push(`/igrac/korisnik/${userId}?clubId=${cid}` as never)
       }
