@@ -15,16 +15,8 @@ export default function TrenerLayout() {
     <HeaderTitleOverrideProvider>
       <Tabs
       screenOptions={tabNavigatorChromeOptions(c, {
-        centerTitleForRoutes: new Set(['index', 'tim', 'utakmice', 'takmicenje']),
+        centerTitleForRoutes: new Set(['tim', 'index', 'takmicenje', 'utakmice']),
       })}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Treninzi i taktike',
-          tabBarLabel: 'Treninzi',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
-        }}
-      />
       <Tabs.Screen
         name="tim"
         options={{
@@ -34,10 +26,11 @@ export default function TrenerLayout() {
         }}
       />
       <Tabs.Screen
-        name="utakmice"
+        name="index"
         options={{
-          title: 'Utakmice',
-          tabBarIcon: ({ color }) => <IconSymbol size={24} name="calendar" color={color} />,
+          title: 'Treninzi i taktike',
+          tabBarLabel: 'Treninzi',
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="bolt.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -45,6 +38,13 @@ export default function TrenerLayout() {
         options={{
           title: 'Takmičenje',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="trophy.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="utakmice"
+        options={{
+          title: 'Utakmice',
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen name="profile" options={{ href: null }} />

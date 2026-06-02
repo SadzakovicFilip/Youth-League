@@ -3,6 +3,7 @@ import { usePathname } from 'expo-router';
 import { type ComponentProps, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
+import { AppSoundsToggle } from '@/components/app-sounds-toggle';
 import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDrawer } from '@/contexts/app-drawer-context';
@@ -220,7 +221,14 @@ export function AppDrawerProfilePanel({ open }: { open: boolean }) {
             {roleLabel}
           </ThemedText>
         </View>
-        <ThemeProfileToggle variant="inline" />
+        <View style={styles.topBarToggles}>
+          <View style={styles.toggleRow}>
+            <AppSoundsToggle variant="inline" />
+          </View>
+          <View style={styles.toggleRow}>
+            <ThemeProfileToggle variant="inline" />
+          </View>
+        </View>
       </View>
 
       {loading ? (
@@ -332,6 +340,18 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     marginBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  topBarToggles: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    flexShrink: 0,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rolePill: {
     flexShrink: 1,

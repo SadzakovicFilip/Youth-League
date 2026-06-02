@@ -14,11 +14,18 @@ export type MatchEventInsertRow = {
   points: number;
 };
 
+export type MatchEventDeleteRow = {
+  id?: number;
+  match_id?: number;
+  user_id?: string;
+  event_type?: string;
+};
+
 export type MatchScorebookRealtimeHandlers = {
   /** Novi kos / faul — prikaži animaciju, reload tek posle nje. */
   onScoreInsert: (row: MatchEventInsertRow) => void;
-  /** Undo — odmah osveži (bez animacije). */
-  onScoreDelete: () => void;
+  /** Undo — animacija pa reload (kao kod poena). */
+  onScoreDelete: (row: MatchEventDeleteRow) => void;
   /** Početak/kraj meča; promena samo poena ide kroz animaciju. */
   onMatchUpdate: (newRow: Record<string, unknown>, oldRow: Record<string, unknown>) => void;
 };
@@ -61,9 +68,9 @@ export function useMatchScorebookRealtime(
           table: 'match_events',
         },
         (payload) => {
-          const old = payload.old as { match_id?: number } | undefined;
-          if (old?.match_id != null && Number(old.match_id) !== matchId) return;
-          handlersRef.current.onScoreDelete();
+          const old = payload.old as MatchEventDeleteRow | undefined;
+          if (old?.match_id == null || Number(old.match_id) !== matchId) return;
+          handlersRef.current.onScoreDelete(old);
         },
       )
       .on(

@@ -15,12 +15,12 @@ import {
 
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
-import type { MatchRichTheme } from '@/components/shared/match-rich-card';
 import { TrainingRichCard } from '@/components/trener/training-rich-card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedView } from '@/components/themed-view';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { buildTrainingRichTheme } from '@/lib/training-calendar-theme';
 import { supabase } from '@/lib/supabase';
 
 type Training = {
@@ -44,9 +44,6 @@ type Props = {
   embedded?: boolean;
 };
 
-/** Plava tačkica na kalendaru (dani sa treningom). */
-const TRAINING_SCHEDULE_DOT = '#2563EB';
-
 const CELEBRATION_GREEN = '#047857';
 
 function defaultTrainingDate(): Date {
@@ -58,7 +55,7 @@ function defaultTrainingDate(): Date {
 }
 
 export function TrenerTreninziContent({ embedded = false }: Props) {
-  const { colors } = useAppTheme();
+  const { colors, colorScheme } = useAppTheme();
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [clubId, setClubId] = useState<number | null>(null);
@@ -76,18 +73,11 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
   const [saveTrainingCelebration, setSaveTrainingCelebration] = useState(false);
   const trainingSavePulse = useRef(new Animated.Value(1)).current;
 
-  const matchRichTheme = useMemo<MatchRichTheme>(
-    () => ({
-      surfaceMuted: colors.surfaceMuted,
-      borderStrong: colors.borderStrong,
-      tint: colors.tint,
-      text: colors.text,
-      textSecondary: colors.textSecondary,
-      textMuted: colors.textMuted,
-      danger: colors.danger,
-    }),
-    [colors],
+  const trainingStyle = useMemo(
+    () => buildTrainingRichTheme(colors, colorScheme),
+    [colors, colorScheme],
   );
+  const { theme: trainingCardTheme, stripeColor, palette: trainingPalette } = trainingStyle;
 
   const dateLabel = useMemo(
     () =>
@@ -242,12 +232,16 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
           <Pressable
             style={[
               styles.addButton,
-              { borderColor: colors.tint, backgroundColor: colors.surface },
+              {
+                borderColor: trainingPalette.navy,
+                backgroundColor: trainingPalette.cardSurface,
+              },
             ]}
             onPress={() => setShowForm((v) => !v)}
           >
-            <ThemedText style={[styles.addButtonText, { color: colors.tint }]}>
-              {showForm ? 'Zatvori' : '+ Dodaj trening'}
+            <MaterialIcons name="bolt" size={16} color={trainingPalette.yellow} />
+            <ThemedText style={[styles.addButtonText, { color: trainingPalette.navy }]}>
+              {showForm ? 'Zatvori' : 'Dodaj trening'}
             </ThemedText>
           </Pressable>
         </View>
@@ -444,9 +438,18 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
               Još nema zakazanih treninga — izaberi dan na kalendaru ili dodaj novi trening.
             </ThemedText>
           ) : null}
+          <View style={styles.trainingLegend}>
+            <MaterialIcons name="bolt" size={14} color={trainingPalette.yellow} />
+            <ThemedText style={[styles.trainingLegendText, { color: colors.textSecondary }]}>
+              Plavo-žuti kalendar označava dane sa treningom
+            </ThemedText>
+          </View>
           <MatchTimetableCalendar
             matches={data.trainings}
-            scheduleDotColor={TRAINING_SCHEDULE_DOT}
+            scheduleDotColor={trainingPalette.yellow}
+            accentColor={trainingPalette.navy}
+            accentWash={trainingPalette.wash}
+            scheduleDayMarker="bolt"
             listHeading={(d) =>
               `Treninzi za ${d.toLocaleDateString('sr-Latn', {
                 weekday: 'long',
@@ -457,7 +460,8 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
             emptyDayMessage="Nema treninga za ovaj dan."
             renderMatch={(t) => (
               <TrainingRichCard
-                theme={matchRichTheme}
+                theme={trainingCardTheme}
+                stripeColor={stripeColor}
                 topic={t.topic}
                 scheduledIso={t.scheduled_at}
                 venue={t.venue}
@@ -519,12 +523,17 @@ const styles = StyleSheet.create({
   /** Razmak od chipova u hub-u — ostatak daje `index` (gap 15). */
   addRowEmbedded: { marginTop: 0 },
   addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 18,
     paddingVertical: 11,
   },
   addButtonText: { fontWeight: '700', fontSize: 15 },
+  trainingLegend: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  trainingLegendText: { fontSize: 12, flex: 1 },
   formCard: {
     borderWidth: 1,
     borderRadius: 12,

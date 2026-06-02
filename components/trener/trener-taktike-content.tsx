@@ -21,6 +21,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedView } from '@/components/themed-view';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { getTrainingCalendarPalette } from '@/lib/training-calendar-theme';
 import {
   packTacticDescription,
   unpackTacticDescription,
@@ -63,7 +64,11 @@ function isYouTubeUrl(url: string): boolean {
 }
 
 export function TrenerTaktikeContent({ embedded = false }: Props) {
-  const { colors } = useAppTheme();
+  const { colors, colorScheme } = useAppTheme();
+  const trainingPalette = useMemo(
+    () => getTrainingCalendarPalette(colorScheme),
+    [colorScheme],
+  );
   const [kindFilter, setKindFilter] = useState<TacticKindFilter>('attack');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -210,7 +215,10 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
           <Pressable
             style={[
               styles.addButton,
-              { borderColor: colors.tint, backgroundColor: colors.surface },
+              {
+                borderColor: trainingPalette.navy,
+                backgroundColor: trainingPalette.cardSurface,
+              },
             ]}
             onPress={() => {
               setShowTacticForm((v) => {
@@ -219,8 +227,9 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
                 return next;
               });
             }}>
-            <ThemedText style={[styles.addButtonText, { color: colors.tint }]}>
-              {showTacticForm ? 'Zatvori' : '+ Dodaj taktiku'}
+            <MaterialIcons name="bolt" size={16} color={trainingPalette.yellow} />
+            <ThemedText style={[styles.addButtonText, { color: trainingPalette.navy }]}>
+              {showTacticForm ? 'Zatvori' : 'Dodaj taktiku'}
             </ThemedText>
           </Pressable>
         </View>
@@ -284,8 +293,8 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
                       },
                     ]}
                     onPress={() => void copyNewReference()}>
-                    <MaterialIcons name="content-copy" size={18} color={colors.tint} />
-                    <ThemedText style={[styles.refBtnText, { color: colors.tint }]}>
+                    <MaterialIcons name="content-copy" size={18} color={trainingPalette.navy} />
+                    <ThemedText style={[styles.refBtnText, { color: trainingPalette.navy }]}>
                       Kopiraj link
                     </ThemedText>
                   </Pressable>
@@ -299,8 +308,8 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
                         },
                       ]}
                       onPress={openNewReference}>
-                      <MaterialIcons name="play-circle-outline" size={20} color={colors.tint} />
-                      <ThemedText style={[styles.refBtnText, { color: colors.tint }]}>
+                      <MaterialIcons name="play-circle-outline" size={20} color={trainingPalette.navy} />
+                      <ThemedText style={[styles.refBtnText, { color: trainingPalette.navy }]}>
                         Otvori (YouTube)
                       </ThemedText>
                     </Pressable>
@@ -314,8 +323,8 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
                         },
                       ]}
                       onPress={openNewReference}>
-                      <MaterialIcons name="open-in-new" size={18} color={colors.tint} />
-                      <ThemedText style={[styles.refBtnText, { color: colors.tint }]}>
+                      <MaterialIcons name="open-in-new" size={18} color={trainingPalette.navy} />
+                      <ThemedText style={[styles.refBtnText, { color: trainingPalette.navy }]}>
                         Otvori link
                       </ThemedText>
                     </Pressable>
@@ -336,7 +345,7 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
             style={[
               styles.saveButton,
               {
-                backgroundColor: saveTacticCelebration ? CELEBRATION_GREEN : colors.tint,
+                backgroundColor: saveTacticCelebration ? CELEBRATION_GREEN : trainingPalette.navy,
               },
               saveTacticCelebration && styles.saveCelebrationPad,
               (tacticSubmitting || saveTacticCelebration) && styles.buttonDisabled,
@@ -363,7 +372,13 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
                 </ThemedText>
               </View>
             ) : (
-              <ThemedText style={styles.saveButtonText}>Sačuvaj taktiku</ThemedText>
+              <ThemedText
+                style={[
+                  styles.saveButtonText,
+                  !saveTacticCelebration && { color: trainingPalette.yellowOnNavy },
+                ]}>
+                Sačuvaj taktiku
+              </ThemedText>
             )}
           </Pressable>
         </ThemedView>
@@ -375,8 +390,8 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
             style={[
               styles.filterChip,
               {
-                backgroundColor: kindFilter === 'attack' ? colors.tint : colors.surfaceMuted,
-                borderColor: kindFilter === 'attack' ? colors.tint : colors.borderStrong,
+                backgroundColor: kindFilter === 'attack' ? trainingPalette.navy : colors.surfaceMuted,
+                borderColor: kindFilter === 'attack' ? trainingPalette.navy : colors.borderStrong,
               },
             ]}
             onPress={() => setKindFilter('attack')}>
@@ -384,7 +399,7 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
               type="defaultSemiBold"
               numberOfLines={1}
               style={{
-                color: kindFilter === 'attack' ? '#fff' : colors.text,
+                color: kindFilter === 'attack' ? trainingPalette.yellowOnNavy : colors.text,
                 fontSize: 11,
                 letterSpacing: 0.15,
                 textAlign: 'center',
@@ -396,8 +411,8 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
             style={[
               styles.filterChip,
               {
-                backgroundColor: kindFilter === 'defense' ? colors.tint : colors.surfaceMuted,
-                borderColor: kindFilter === 'defense' ? colors.tint : colors.borderStrong,
+                backgroundColor: kindFilter === 'defense' ? trainingPalette.navy : colors.surfaceMuted,
+                borderColor: kindFilter === 'defense' ? trainingPalette.navy : colors.borderStrong,
               },
             ]}
             onPress={() => setKindFilter('defense')}>
@@ -405,7 +420,7 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
               type="defaultSemiBold"
               numberOfLines={1}
               style={{
-                color: kindFilter === 'defense' ? '#fff' : colors.text,
+                color: kindFilter === 'defense' ? trainingPalette.yellowOnNavy : colors.text,
                 fontSize: 11,
                 letterSpacing: 0.15,
                 textAlign: 'center',
@@ -416,7 +431,7 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
         </View>
       ) : null}
 
-      {loading ? <ActivityIndicator color={colors.tint} /> : null}
+      {loading ? <ActivityIndicator color={trainingPalette.navy} /> : null}
       {errorMessage ? (
         <ThemedView
           style={[
@@ -463,7 +478,11 @@ export function TrenerTaktikeContent({ embedded = false }: Props) {
 }
 
 function TacticRow({ tactic }: { tactic: Tactic }) {
-  const { colors } = useAppTheme();
+  const { colors, colorScheme } = useAppTheme();
+  const trainingPalette = useMemo(
+    () => getTrainingCalendarPalette(colorScheme),
+    [colorScheme],
+  );
   const descPreview = unpackTacticDescription(tactic.description).body.trim();
   const n = tactic.actions_count;
   const actionsHint =
@@ -482,7 +501,7 @@ function TacticRow({ tactic }: { tactic: Tactic }) {
         <ThemedText style={[styles.muted, { color: colors.textSecondary }]}>{descPreview}</ThemedText>
       ) : null}
       {n > 0 ? (
-        <ThemedText style={[styles.hint, { color: colors.tint }]}>{actionsHint} ▸</ThemedText>
+        <ThemedText style={[styles.hint, { color: trainingPalette.navy }]}>{actionsHint} ▸</ThemedText>
       ) : null}
     </Pressable>
   );
@@ -500,6 +519,9 @@ const styles = StyleSheet.create({
   },
   addRowEmbedded: { marginTop: 0 },
   addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 18,

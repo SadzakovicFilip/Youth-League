@@ -1,19 +1,30 @@
 /**
- * Puni-ekran flash animacija za upis poena / faula (2,5 s).
- * Koncentrični krugovi se šire proporcionalno rastućem fontu; na kraju poziva onComplete.
+ * Puni-ekran flash animacija za upis poena / faula / UNDO / pištaljku (2,5 s).
  */
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ActionAccentHex } from '@/constants/theme';
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 
+import type { MatchScoreFlashVariant } from '@/lib/match-score-flash-label';
+
 export const MATCH_SCORE_FLASH_MS = 2500;
 
 type Props = {
+  animationKey: string;
+  variant: MatchScoreFlashVariant;
   label: string;
+  undoDetail?: string;
   onComplete: () => void;
 };
 
-export function MatchScoreEventFlash({ label, onComplete }: Props) {
+export function MatchScoreEventFlash({
+  animationKey,
+  variant,
+  label,
+  undoDetail,
+  onComplete,
+}: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
@@ -30,7 +41,7 @@ export function MatchScoreEventFlash({ label, onComplete }: Props) {
       if (finished) onCompleteRef.current();
     });
     return () => anim.stop();
-  }, [label, progress]);
+  }, [animationKey, progress]);
 
   const textScale = progress.interpolate({
     inputRange: [0, 0.35, 0.75, 1],
@@ -40,6 +51,11 @@ export function MatchScoreEventFlash({ label, onComplete }: Props) {
   const textOpacity = progress.interpolate({
     inputRange: [0, 0.12, 0.72, 1],
     outputRange: [0, 1, 1, 0],
+  });
+
+  const detailScale = progress.interpolate({
+    inputRange: [0, 0.35, 0.75, 1],
+    outputRange: [0.55, 0.9, 1.05, 1.15],
   });
 
   const ringScale = (from: number, to: number) =>
@@ -77,16 +93,42 @@ export function MatchScoreEventFlash({ label, onComplete }: Props) {
             ]}
           />
         ))}
-        <Animated.Text
-          style={[
-            styles.label,
-            {
-              opacity: textOpacity,
-              transform: [{ scale: textScale }],
-            },
-          ]}>
-          {label}
-        </Animated.Text>
+        <Animated.View
+          style={{
+            opacity: textOpacity,
+            transform: [{ scale: textScale }],
+            alignItems: 'center',
+          }}>
+          {variant === 'whistle' ? (
+            <>
+              <MaterialCommunityIcons name="whistle" size={96} color={ActionAccentHex} />
+              {undoDetail ? (
+                <Animated.Text
+                  style={[
+                    styles.whistleDetail,
+                    { transform: [{ scale: detailScale }] },
+                  ]}>
+                  {undoDetail}
+                </Animated.Text>
+              ) : null}
+            </>
+          ) : variant === 'undo' ? (
+            <>
+              <Animated.Text style={styles.undoArrow}>{label}</Animated.Text>
+              {undoDetail ? (
+                <Animated.Text
+                  style={[
+                    styles.undoDetail,
+                    { transform: [{ scale: detailScale }] },
+                  ]}>
+                  {undoDetail}
+                </Animated.Text>
+              ) : null}
+            </>
+          ) : (
+            <Animated.Text style={styles.scoreLabel}>{label}</Animated.Text>
+          )}
+        </Animated.View>
       </View>
     </View>
   );
@@ -113,12 +155,42 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'transparent',
   },
-  label: {
+  scoreLabel: {
     color: ActionAccentHex,
     fontWeight: '900',
     fontSize: 28,
     letterSpacing: 0.5,
     textAlign: 'center',
+    paddingHorizontal: 8,
+    maxWidth: 260,
+  },
+  undoArrow: {
+    color: ActionAccentHex,
+    fontWeight: '900',
+    fontSize: 88,
+    lineHeight: 92,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  undoDetail: {
+    color: ActionAccentHex,
+    fontWeight: '800',
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 8,
+    maxWidth: 260,
+  },
+  whistleDetail: {
+    color: ActionAccentHex,
+    fontWeight: '800',
+    fontSize: 20,
+    lineHeight: 24,
+    letterSpacing: 0.6,
+    textAlign: 'center',
+    marginTop: 8,
     paddingHorizontal: 8,
     maxWidth: 260,
   },

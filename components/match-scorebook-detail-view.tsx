@@ -26,13 +26,23 @@ import { MatchScorebookLiveView } from '@/components/match-scorebook-live-view';
 import type { MatchScorebookPayload } from '@/components/match-scorebook-types';
 import {
   useMatchScorebookRealtime,
+  type MatchEventDeleteRow,
   type MatchEventInsertRow,
 } from '@/hooks/use-match-scorebook-realtime';
 import {
+  buildGenericUndoFlashPayload,
   buildScoreFlashPayload,
+  buildUndoFlashPayload,
+  buildWhistleFlashPayload,
+  matchLifecycleWhistlePhase,
+  undoFlashKey,
+  whistleFlashKey,
   type MatchScoreFlashEventType,
   type MatchScoreFlashPayload,
+  type MatchWhistlePhase,
 } from '@/lib/match-score-flash-label';
+import { playMatchAppSound, soundForFlashPayload } from '@/lib/match-app-sounds';
+import { useAppSounds } from '@/contexts/app-sounds-context';
 import { normalizeLiveScorebookPayload } from '@/lib/match-scorebook-normalize';
 export type {
   MatchScorebookDetailMatchInfo,
@@ -93,6 +103,23 @@ export const MatchScorebookDetailView = forwardRef<
   const suppressedInsertRef = useRef<{ userId: string; eventType: string; at: number } | null>(
     null,
   );
+  const suppressedDeleteRef = useRef<{
+    deletedId?: number;
+    userId?: string;
+    eventType?: string;
+    at: number;
+  } | null>(null);
+  const localUndoPendingRef = useRef(false);
+  const lastUndoFlashKeyRef = useRef<string | null>(null);
+  const lastWhistleFlashKeyRef = useRef<string | null>(null);
+  const undoFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashRef = useRef<MatchScoreFlashPayload | null>(null);
+  flashRef.current = flash;
+  const presentedDataRef = useRef(presentedData);
+  presentedDataRef.current = presentedData;
+  const soundsEnabledRef = useRef(true);
+  const { soundsEnabled } = useAppSounds();
+  soundsEnabledRef.current = soundsEnabled;
   const rosterRef = useRef<{ home: MatchScorebookPayload['home_roster']; away: MatchScorebookPayload['away_roster'] }>({
     home: [],
     away: [],
@@ -121,6 +148,8 @@ export const MatchScorebookDetailView = forwardRef<
     }
   }, []);
 
+  const beginFlashRef = useRef<(payload: MatchScoreFlashPayload) => void>(() => {});
+
   const load = useCallback(async () => {
     if (!Number.isFinite(matchId)) {
       setErrorMessage('Neispravan ID utakmice');
@@ -146,7 +175,27 @@ export const MatchScorebookDetailView = forwardRef<
           return;
         }
         setErrorMessage('');
-        applyServerToPresented(rpcData as MatchScorebookPayload);
+        const incoming = normalizeLiveScorebookPayload(rpcData as MatchScorebookPayload);
+        const presented = presentedDataRef.current;
+        if (
+          presented?.is_zapisnicar &&
+          !flashActiveRef.current &&
+          presented.match.status !== incoming.match.status
+        ) {
+          const phase = matchLifecycleWhistlePhase(presented.match.status, incoming.match.status);
+          if (phase) {
+            const key = whistleFlashKey(matchId, phase);
+            if (lastWhistleFlashKeyRef.current !== key) {
+              beginFlashRef.current(buildWhistleFlashPayload(phase, matchId, key));
+              setServerData(incoming);
+              pendingApplyRef.current = true;
+              setLoading(false);
+              await onAfterReloadRef.current?.();
+              continue;
+            }
+          }
+        }
+        applyServerToPresented(incoming);
         setLoading(false);
         await onAfterReloadRef.current?.();
       } while (loadQueuedRef.current);
@@ -180,12 +229,42 @@ export const MatchScorebookDetailView = forwardRef<
   loadRef.current = load;
 
   const beginFlash = useCallback((payload: MatchScoreFlashPayload) => {
+    if (payload.variant === 'undo') {
+      if (flashActiveRef.current && flashRef.current?.key === payload.key) return;
+      if (lastUndoFlashKeyRef.current === payload.key) return;
+      lastUndoFlashKeyRef.current = payload.key;
+    }
+    if (payload.variant === 'whistle') {
+      if (flashActiveRef.current && flashRef.current?.key === payload.key) return;
+      if (lastWhistleFlashKeyRef.current === payload.key) return;
+      lastWhistleFlashKeyRef.current = payload.key;
+    }
+    if (soundsEnabledRef.current) {
+      const soundId = soundForFlashPayload(payload);
+      if (soundId) void playMatchAppSound(soundId);
+    }
     flashActiveRef.current = true;
     setFlash(payload);
   }, []);
 
-  const beginFlashRef = useRef(beginFlash);
   beginFlashRef.current = beginFlash;
+
+  const tryBeginWhistleTransition = useCallback(
+    (newStatus: string | null | undefined): boolean => {
+      const presented = presentedDataRef.current;
+      if (!presented?.is_zapisnicar || flashActiveRef.current) return false;
+      const phase: MatchWhistlePhase | null = matchLifecycleWhistlePhase(
+        presented.match.status,
+        newStatus,
+      );
+      if (!phase) return false;
+      const key = whistleFlashKey(matchId, phase);
+      if (lastWhistleFlashKeyRef.current === key) return true;
+      beginFlashRef.current(buildWhistleFlashPayload(phase, matchId, key));
+      return true;
+    },
+    [matchId],
+  );
 
   const handleScoreInsertFromRow = useCallback(
     (row: MatchEventInsertRow) => {
@@ -225,6 +304,79 @@ export const MatchScorebookDetailView = forwardRef<
     [],
   );
 
+  const handleUndoStarted = useCallback(() => {
+    localUndoPendingRef.current = true;
+    suppressedDeleteRef.current = { at: Date.now() };
+  }, []);
+
+  const handleUndoAborted = useCallback(() => {
+    localUndoPendingRef.current = false;
+    suppressedDeleteRef.current = null;
+  }, []);
+
+  const handleLocalUndoComplete = useCallback(
+    (result: { userId: string; eventType: MatchScoreFlashEventType; deletedId?: number }) => {
+      localUndoPendingRef.current = false;
+      suppressedDeleteRef.current = {
+        deletedId: result.deletedId,
+        userId: result.userId,
+        eventType: result.eventType,
+        at: Date.now(),
+      };
+      const { home, away } = rosterRef.current;
+      const key = undoFlashKey(result.deletedId, result.userId, result.eventType);
+      beginFlashRef.current(
+        buildUndoFlashPayload(home, away, result.userId, result.eventType, key),
+      );
+    },
+    [],
+  );
+
+  const handleScoreDeleteFromRow = useCallback((row: MatchEventDeleteRow) => {
+    if (localUndoPendingRef.current) return;
+    if (undoFallbackTimerRef.current) {
+      clearTimeout(undoFallbackTimerRef.current);
+      undoFallbackTimerRef.current = null;
+    }
+    if (flashActiveRef.current && flashRef.current?.variant === 'undo') return;
+
+    const sup = suppressedDeleteRef.current;
+    const flashKey = row.id != null ? undoFlashKey(row.id) : null;
+    if (flashKey && lastUndoFlashKeyRef.current === flashKey) return;
+
+    if (sup && Date.now() - sup.at < 8000) {
+      const sameEvent =
+        (row.id != null && sup.deletedId != null && row.id === sup.deletedId) ||
+        (row.user_id != null &&
+          row.event_type != null &&
+          row.user_id === sup.userId &&
+          row.event_type === sup.eventType);
+      if (sameEvent) {
+        suppressedDeleteRef.current = null;
+        return;
+      }
+    }
+
+    const { home, away } = rosterRef.current;
+    const eventType = row.event_type ?? '';
+    if (row.user_id && isScoreFlashEventType(eventType)) {
+      beginFlashRef.current(
+        buildUndoFlashPayload(
+          home,
+          away,
+          row.user_id,
+          eventType,
+          flashKey ?? undoFlashKey(undefined, row.user_id, eventType),
+        ),
+      );
+      return;
+    }
+
+    beginFlashRef.current(
+      buildGenericUndoFlashPayload(flashKey ?? `undo-rt-${Date.now()}`),
+    );
+  }, []);
+
   const handleFlashComplete = useCallback(async () => {
     setFlash(null);
     blockScoreOnlyReloadRef.current = true;
@@ -235,6 +387,10 @@ export const MatchScorebookDetailView = forwardRef<
       await load();
     } finally {
       blockScoreOnlyReloadRef.current = false;
+      setTimeout(() => {
+        lastUndoFlashKeyRef.current = null;
+        lastWhistleFlashKeyRef.current = null;
+      }, 400);
     }
   }, [load]);
 
@@ -245,6 +401,9 @@ export const MatchScorebookDetailView = forwardRef<
     setLoading(true);
     cancelFlash();
     void load();
+    return () => {
+      if (undoFallbackTimerRef.current) clearTimeout(undoFallbackTimerRef.current);
+    };
   }, [cancelFlash, load]);
 
   useImperativeHandle(
@@ -260,6 +419,9 @@ export const MatchScorebookDetailView = forwardRef<
     Number.isFinite(matchId) &&
     !isFinishedStatus(serverData?.match.status);
 
+  const tryBeginWhistleTransitionRef = useRef(tryBeginWhistleTransition);
+  tryBeginWhistleTransitionRef.current = tryBeginWhistleTransition;
+
   const handleMatchUpdate = useCallback(
     (newRow: Record<string, unknown>, oldRow: Record<string, unknown>) => {
       const lifecycleChanged =
@@ -268,11 +430,38 @@ export const MatchScorebookDetailView = forwardRef<
         newRow.ended_at !== oldRow.ended_at;
 
       if (lifecycleChanged) {
+        const newStatus = String(newRow.status ?? '');
+        if (tryBeginWhistleTransitionRef.current(newStatus)) {
+          return;
+        }
         void reloadImmediateRef.current();
         return;
       }
 
-      if (flashActiveRef.current || blockScoreOnlyReloadRef.current) return;
+      const newHome = Number(newRow.home_score ?? 0);
+      const newAway = Number(newRow.away_score ?? 0);
+      const newTotal = newHome + newAway;
+
+      const presented = presentedDataRef.current?.match;
+      const prevHome = Number(presented?.home_score ?? oldRow.home_score ?? 0);
+      const prevAway = Number(presented?.away_score ?? oldRow.away_score ?? 0);
+      const prevTotal = prevHome + prevAway;
+
+      const scoreDecreased =
+        newTotal < prevTotal && !flashActiveRef.current && !localUndoPendingRef.current;
+
+      if (scoreDecreased) {
+        if (undoFallbackTimerRef.current) clearTimeout(undoFallbackTimerRef.current);
+        undoFallbackTimerRef.current = setTimeout(() => {
+          undoFallbackTimerRef.current = null;
+          if (flashActiveRef.current || localUndoPendingRef.current) return;
+          beginFlashRef.current(
+            buildGenericUndoFlashPayload(`undo-fallback-${prevTotal}-${newTotal}`),
+          );
+        }, 200);
+      }
+
+      if (flashActiveRef.current || blockScoreOnlyReloadRef.current || scoreDecreased) return;
 
       loadQueuedRef.current = true;
       void loadRef.current();
@@ -284,9 +473,7 @@ export const MatchScorebookDetailView = forwardRef<
     matchId,
     {
       onScoreInsert: handleScoreInsertFromRow,
-      onScoreDelete: () => {
-        void reloadImmediateRef.current();
-      },
+      onScoreDelete: handleScoreDeleteFromRow,
       onMatchUpdate: handleMatchUpdate,
     },
     { enabled: liveSyncEnabled },
@@ -343,7 +530,9 @@ export const MatchScorebookDetailView = forwardRef<
               matchId={matchId}
               data={presentedData}
               onScoreRecorded={handleLocalScoreRecorded}
-              onUndoComplete={reloadImmediate}
+              onUndoStarted={handleUndoStarted}
+              onUndoAborted={handleUndoAborted}
+              onUndoComplete={handleLocalUndoComplete}
               onActionError={setErrorMessage}
             />
           ) : (
@@ -356,7 +545,10 @@ export const MatchScorebookDetailView = forwardRef<
           {flash ? (
             <MatchScoreEventFlash
               key={flash.key}
+              animationKey={flash.key}
+              variant={flash.variant}
               label={flash.label}
+              undoDetail={flash.undoDetail}
               onComplete={() => {
                 void handleFlashCompleteRef.current();
               }}

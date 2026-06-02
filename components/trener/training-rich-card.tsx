@@ -10,6 +10,8 @@ import { ThemedText } from '@/components/themed-text';
 
 export type TrainingRichCardProps = {
   theme: MatchRichTheme;
+  /** Leva traka (podrazumevano theme.tint). Za trening: plava teget. */
+  stripeColor?: string;
   topic: string;
   scheduledIso: string;
   venue: string | null;
@@ -33,6 +35,7 @@ function formatTimeSr(iso: string): string {
 
 export function TrainingRichCard({
   theme,
+  stripeColor,
   topic,
   scheduledIso,
   venue,
@@ -42,6 +45,7 @@ export function TrainingRichCard({
   onPress,
   onDelete,
 }: TrainingRichCardProps) {
+  const stripe = stripeColor ?? theme.tint;
   const dateStr = formatMatchDateDdMmYyyy(scheduledIso);
   const timeStr = formatTimeSr(scheduledIso);
   const [shellH, setShellH] = useState(96);
@@ -71,18 +75,18 @@ export function TrainingRichCard({
           allowFontScaling={false}
           style={[
             styles.watermarkLetter,
-            { fontSize: watermarkSize, color: theme.tint, opacity: 0.22 },
+            { fontSize: watermarkSize, color: stripe, opacity: 0.18 },
           ]}>
-          T
+          ⚡
         </Text>
       </View>
 
       <View style={styles.rowOuter}>
-        <View style={[styles.stripe, { backgroundColor: theme.tint }]} />
+        <View style={[styles.stripe, { backgroundColor: stripe }]} />
         <View style={styles.body}>
           <View style={styles.rowBetween}>
             <View style={styles.titleWrap}>
-              <MaterialIcons name="fitness-center" size={18} color={theme.tint} />
+              <MaterialIcons name="bolt" size={18} color={theme.tint} />
               <ThemedText
                 type="defaultSemiBold"
                 numberOfLines={2}

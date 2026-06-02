@@ -1,6 +1,5 @@
-import { ActionAccentHex } from '@/constants/theme';
 import { useAppTheme } from '@/contexts/app-theme-context';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
@@ -9,14 +8,25 @@ import { TrenerTaktikeContent } from '@/components/trener/trener-taktike-content
 import { TrenerTreninziContent } from '@/components/trener/trener-treninzi-content';
 import { ThemedText } from '@/components/themed-text';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { getTrainingCalendarPalette } from '@/lib/training-calendar-theme';
 
 type HubChip = 'treninzi' | 'taktike';
 
 export default function TrenerHubScreen() {
-  const { colors } = useAppTheme();
+  const { colors, colorScheme } = useAppTheme();
   const [chip, setChip] = useState<HubChip>('treninzi');
+  const trainingPalette = useMemo(
+    () => getTrainingCalendarPalette(colorScheme),
+    [colorScheme],
+  );
 
   useScreenPullRefresh(useCallback(() => Promise.resolve(), []));
+
+  const chipVisual = (active: boolean) => ({
+    backgroundColor: active ? trainingPalette.navy : colors.surfaceMuted,
+    borderColor: active ? trainingPalette.navy : colors.borderStrong,
+    labelColor: active ? trainingPalette.yellowOnNavy : colors.text,
+  });
 
   return (
     <ScreenShell disableKeyboardAvoiding>
@@ -32,8 +42,8 @@ export default function TrenerHubScreen() {
             style={[
               styles.chipFilled,
               {
-                backgroundColor: chip === 'treninzi' ? ActionAccentHex : colors.surfaceMuted,
-                borderColor: chip === 'treninzi' ? ActionAccentHex : colors.borderStrong,
+                backgroundColor: chipVisual(chip === 'treninzi').backgroundColor,
+                borderColor: chipVisual(chip === 'treninzi').borderColor,
               },
             ]}
             onPress={() => setChip('treninzi')}>
@@ -43,7 +53,7 @@ export default function TrenerHubScreen() {
               adjustsFontSizeToFit
               minimumFontScale={0.75}
               style={{
-                color: chip === 'treninzi' ? '#fff' : colors.text,
+                color: chipVisual(chip === 'treninzi').labelColor,
                 fontSize: 11,
                 letterSpacing: 0.15,
                 textAlign: 'center',
@@ -55,8 +65,8 @@ export default function TrenerHubScreen() {
             style={[
               styles.chipFilled,
               {
-                backgroundColor: chip === 'taktike' ? ActionAccentHex : colors.surfaceMuted,
-                borderColor: chip === 'taktike' ? ActionAccentHex : colors.borderStrong,
+                backgroundColor: chipVisual(chip === 'taktike').backgroundColor,
+                borderColor: chipVisual(chip === 'taktike').borderColor,
               },
             ]}
             onPress={() => setChip('taktike')}>
@@ -66,7 +76,7 @@ export default function TrenerHubScreen() {
               adjustsFontSizeToFit
               minimumFontScale={0.75}
               style={{
-                color: chip === 'taktike' ? '#fff' : colors.text,
+                color: chipVisual(chip === 'taktike').labelColor,
                 fontSize: 11,
                 letterSpacing: 0.15,
                 textAlign: 'center',

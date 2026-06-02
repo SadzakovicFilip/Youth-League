@@ -21,6 +21,7 @@ const MAPPING = {
   'person.3.fill': 'groups',
   'calendar': 'event',
   'trophy.fill': 'emoji-events',
+  'bolt.fill': 'bolt',
   /** Teren / utakmice — na Androidu nema SF „sportscourt“, najbliže: lopta */
   'sportscourt.fill': 'sports-basketball',
   'chevron.left.forwardslash.chevron.right': 'code',

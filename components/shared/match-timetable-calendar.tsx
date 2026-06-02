@@ -54,6 +54,12 @@ type Props<T extends TimetableMatch> = {
   matchesNeedAttention?: (m: T) => boolean;
   resolveDayMarker?: (dayMatches: T[]) => MatchDayCalendarMarker | null;
   scheduleDotColor?: string;
+  /** Boja selektovanog dana (podrazumevano narandžasta utakmica). */
+  accentColor?: string;
+  /** Pozadina današnjeg dana kad nije selektovan. */
+  accentWash?: string;
+  /** Ikona na danima sa terminom (munja za trening). */
+  scheduleDayMarker?: 'dot' | 'bolt';
   listHeading?: (day: Date) => string;
 };
 
@@ -65,12 +71,14 @@ function CalendarDayMarker({
   dotFill,
   mutedColor,
   statusColors,
+  scheduleDayMarker,
 }: {
   marker: MatchDayCalendarMarker;
   selected: boolean;
   dotFill: string;
   mutedColor: string;
   statusColors: MatchCalendarStatusColors;
+  scheduleDayMarker: 'dot' | 'bolt';
 }) {
   const tint = (c: string) => (selected ? '#fff' : c);
 
@@ -119,21 +127,19 @@ function CalendarDayMarker({
         <ThemedText style={[styles.xMarker, { color: tint(mutedColor) }]}>×</ThemedText>
       );
     case 'dot':
-    default:
-      return (
-        <View
-          style={[
-            styles.dot,
-            {
-              backgroundColor: selected
-                ? '#fff'
-                : scheduleDotColorUsesAccent(dotFill)
-                  ? statusColors.zakazana
-                  : dotFill,
-            },
-          ]}
-        />
-      );
+    default: {
+      const fill = selected
+        ? '#fff'
+        : scheduleDotColorUsesAccent(dotFill)
+          ? statusColors.zakazana
+          : dotFill;
+      if (scheduleDayMarker === 'bolt' && !selected) {
+        return (
+          <MaterialIcons name="bolt" size={15} color={tint(fill)} style={styles.iconMarker} />
+        );
+      }
+      return <View style={[styles.dot, { backgroundColor: fill }]} />;
+    }
   }
 }
 
@@ -149,6 +155,9 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
   matchesNeedAttention,
   resolveDayMarker,
   scheduleDotColor,
+  accentColor,
+  accentWash,
+  scheduleDayMarker = 'dot',
   listHeading,
 }: Props<T>) {
   const { colors, colorScheme } = useAppTheme();
@@ -156,6 +165,8 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
     () => getMatchCalendarStatusColors(colorScheme),
     [colorScheme],
   );
+  const cellAccent = accentColor ?? ActionAccentHex;
+  const cellAccentWash = accentWash ?? ActionAccentWash;
   const today = useMemo(() => startOfLocalDay(now()), []);
   const [visibleYear, setVisibleYear] = useState(today.getFullYear());
   const [visibleMonthIndex, setVisibleMonthIndex] = useState(today.getMonth());
@@ -243,13 +254,13 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
     <ThemedView style={styles.wrap}>
       <ThemedView style={[styles.monthRow, { borderColor: borderMuted }]}>
         <Pressable onPress={goPrevMonth} style={styles.monthArrow} accessibilityLabel="Prethodni mesec">
-          <MaterialIcons name="chevron-left" size={28} color={colors.tint} />
+          <MaterialIcons name="chevron-left" size={28} color={cellAccent} />
         </Pressable>
         <ThemedText type="defaultSemiBold" style={styles.monthTitle}>
           {monthTitle}
         </ThemedText>
         <Pressable onPress={goNextMonth} style={styles.monthArrow} accessibilityLabel="Sledeci mesec">
-          <MaterialIcons name="chevron-right" size={28} color={colors.tint} />
+          <MaterialIcons name="chevron-right" size={28} color={cellAccent} />
         </Pressable>
       </ThemedView>
 
@@ -281,9 +292,9 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
                 styles.dayCell,
                 {
                   borderColor: borderMuted,
-                  backgroundColor: sel ? ActionAccentHex : 'transparent',
+                  backgroundColor: sel ? cellAccent : 'transparent',
                 },
-                isToday && !sel ? { borderColor: ActionAccentHex, backgroundColor: ActionAccentWash } : null,
+                isToday && !sel ? { borderColor: cellAccent, backgroundColor: cellAccentWash } : null,
               ]}
               accessibilityLabel={`Dan ${dayNum}`}
               accessibilityState={{ selected: sel }}>
@@ -302,6 +313,7 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
                   dotFill={dotFill}
                   mutedColor={colors.textSecondary}
                   statusColors={statusColors}
+                  scheduleDayMarker={scheduleDayMarker}
                 />
               ) : (
                 <View style={styles.dotPlaceholder} />

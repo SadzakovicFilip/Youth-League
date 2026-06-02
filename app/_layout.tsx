@@ -12,6 +12,7 @@ import {
 import { AppSlideDrawer } from "@/components/app-slide-drawer";
 import { Colors } from "@/constants/theme";
 import { AppDrawerProvider } from "@/contexts/app-drawer-context";
+import { AppSoundsProvider } from "@/contexts/app-sounds-context";
 import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { AuthHeaderProvider } from "@/contexts/auth-header-context";
 import { ScreenPullRefreshProvider } from "@/contexts/screen-pull-refresh-context";
@@ -93,6 +94,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics ?? undefined}>
       <AppThemeProvider>
+        <AppSoundsProvider>
         <AuthHeaderProvider>
           <ScreenPullRefreshProvider>
           <AppDrawerProvider>
@@ -105,6 +107,7 @@ export default function RootLayout() {
           </AppDrawerProvider>
           </ScreenPullRefreshProvider>
         </AuthHeaderProvider>
+        </AppSoundsProvider>
       </AppThemeProvider>
     </SafeAreaProvider>
   );

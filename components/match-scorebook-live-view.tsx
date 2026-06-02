@@ -3,11 +3,10 @@
  * Ne koristi se za status `finished`.
  */
 import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
-import { useRef, useState } from 'react';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,16 +25,17 @@ import { supabase } from '@/lib/supabase';
 
 type EventType = 'free_throw' | 'field' | 'three' | 'foul';
 
-function playerName(p: Pick<
-  MatchScorebookRosterPlayer,
-  'display_name' | 'first_name' | 'last_name' | 'username'
->) {
-  return (
-    p.display_name ||
-    [p.first_name, p.last_name].filter(Boolean).join(' ') ||
-    p.username ||
-    'Igrac'
-  );
+function playerNameParts(
+  p: Pick<MatchScorebookRosterPlayer, 'display_name' | 'first_name' | 'last_name' | 'username'>,
+) {
+  if (p.last_name || p.first_name) {
+    return {
+      lastName: p.last_name?.trim() || '',
+      firstName: p.first_name?.trim() || '',
+    };
+  }
+  const fallback = p.display_name?.trim() || p.username?.trim() || 'Igrac';
+  return { lastName: fallback, firstName: '' };
 }
 
 function totalTeamPoints(r: MatchScorebookRosterPlayer[]) {
@@ -47,8 +47,15 @@ type Props = {
   data: MatchScorebookPayload;
   /** Uspešan upis poena/faula — parent pokreće animaciju i odloženi reload. */
   onScoreRecorded: (userId: string, type: EventType) => void;
-  /** Uspešan UNDO — parent odmah osvežava (bez animacije). */
-  onUndoComplete: () => void | Promise<void>;
+  /** Pre RPC poziva — sprečava dupli flash (realtime DELETE + lokalni callback). */
+  onUndoStarted?: () => void;
+  onUndoAborted?: () => void;
+  /** Uspešan UNDO — parent pokreće animaciju i odloženi reload. */
+  onUndoComplete: (result: {
+    userId: string;
+    eventType: EventType;
+    deletedId?: number;
+  }) => void | Promise<void>;
   onActionError?: (message: string) => void;
 };
 
@@ -56,23 +63,14 @@ export function MatchScorebookLiveView({
   matchId,
   data,
   onScoreRecorded,
+  onUndoStarted,
+  onUndoAborted,
   onUndoComplete,
   onActionError,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = windowWidth;
-  const [pageIndex, setPageIndex] = useState(0);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const pageIndexRef = useRef(0);
-
-  const onHorizontalScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const next = Math.min(1, Math.max(0, Math.round(x / Math.max(1, pageWidth))));
-    if (next !== pageIndexRef.current) {
-      pageIndexRef.current = next;
-      setPageIndex(next);
-    }
-  };
 
   const onEvent = async (userId: string, type: EventType) => {
     if (!data.can_score) return;
@@ -96,29 +94,47 @@ export function MatchScorebookLiveView({
     if (!data.can_score) return;
     setBusyKey('undo');
     onActionError?.('');
+    onUndoStarted?.();
     const { data: res, error } = await supabase.rpc('undo_last_match_event_any', {
       p_match_id: matchId,
     });
     setBusyKey(null);
     if (error) {
+      onUndoAborted?.();
       onActionError?.(error.message);
       return;
     }
     if (res && typeof res === 'object' && 'ok' in res && !(res as { ok: boolean }).ok) {
       const reason = (res as { reason?: string }).reason ?? 'Nema dogadjaja za undo';
+      onUndoAborted?.();
       onActionError?.(reason);
       return;
     }
-    await onUndoComplete();
+    const body = res as {
+      ok?: boolean;
+      user_id?: string;
+      event_type?: string;
+      deleted_id?: number;
+    };
+    if (
+      body.user_id &&
+      (body.event_type === 'free_throw' ||
+        body.event_type === 'field' ||
+        body.event_type === 'three' ||
+        body.event_type === 'foul')
+    ) {
+      await onUndoComplete({
+        userId: body.user_id,
+        eventType: body.event_type,
+        deletedId: body.deleted_id,
+      });
+    }
   };
-
-  const teamLabel =
-    pageIndex === 0
-      ? (data.match.home_club_name ?? 'Tim A')
-      : (data.match.away_club_name ?? 'Tim B');
 
   const statusLabel = formatMatchDisplayStatus(data.match);
   const liveDisplay = isMatchDisplayLive(data.match);
+  const homePts = totalTeamPoints(data.home_roster);
+  const awayPts = totalTeamPoints(data.away_roster);
 
   return (
     <View style={styles.screen}>
@@ -128,10 +144,19 @@ export function MatchScorebookLiveView({
             styles.headerCard,
             liveDisplay && styles.headerCardLive,
           ]}>
-          <ThemedText type="defaultSemiBold" style={styles.matchTitle} numberOfLines={1}>
-            {data.match.home_club_name ?? '-'} {totalTeamPoints(data.home_roster)} :{' '}
-            {totalTeamPoints(data.away_roster)} {data.match.away_club_name ?? '-'}
-          </ThemedText>
+          <View style={styles.heroClubRow}>
+            <ThemedText style={[styles.heroClubName, styles.heroClubNameLeft]} numberOfLines={1}>
+              {data.match.home_club_name ?? '-'}
+            </ThemedText>
+            <ThemedText style={[styles.heroClubName, styles.heroClubNameRight]} numberOfLines={1}>
+              {data.match.away_club_name ?? '-'}
+            </ThemedText>
+          </View>
+          <View style={styles.heroScoreRow}>
+            <ThemedText style={styles.heroScoreNum}>{homePts}</ThemedText>
+            <ThemedText style={styles.heroScoreSep}>:</ThemedText>
+            <ThemedText style={styles.heroScoreNum}>{awayPts}</ThemedText>
+          </View>
           <ThemedText style={styles.statusLine}>
             <ThemedText style={liveDisplay ? styles.statusLive : undefined}>
               {statusLabel}
@@ -157,16 +182,6 @@ export function MatchScorebookLiveView({
             <ThemedText style={styles.undoButtonText}>↶ UNDO (ponisti zadnji upis)</ThemedText>
           )}
         </Pressable>
-
-        <ThemedView style={styles.teamBar}>
-          <ThemedText style={styles.teamBarText} numberOfLines={1}>
-            {teamLabel}
-          </ThemedText>
-          <ThemedText style={styles.swipeHint} numberOfLines={2}>
-            Oba tima su ucitana odjednom — prevucite u levo za gosta, u desno za domacina
-            (animacija prati prst).
-          </ThemedText>
-        </ThemedView>
       </View>
 
       <ScrollView
@@ -174,16 +189,17 @@ export function MatchScorebookLiveView({
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        style={styles.pager}
-        onScroll={onHorizontalScroll}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={onHorizontalScroll}>
+        style={styles.pager}>
         <View style={[styles.page, { width: pageWidth }]}>
           <ScrollView
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.rosterContent}
             showsVerticalScrollIndicator>
+            <RosterTeamHeader
+              side="home"
+              teamName={data.match.home_club_name ?? 'Domacin'}
+            />
             <RosterList roster={data.home_roster} payload={data} busyKey={busyKey} onEvent={onEvent} />
           </ScrollView>
         </View>
@@ -193,6 +209,10 @@ export function MatchScorebookLiveView({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.rosterContent}
             showsVerticalScrollIndicator>
+            <RosterTeamHeader
+              side="away"
+              teamName={data.match.away_club_name ?? 'Gost'}
+            />
             <RosterList roster={data.away_roster} payload={data} busyKey={busyKey} onEvent={onEvent} />
           </ScrollView>
         </View>
@@ -201,6 +221,187 @@ export function MatchScorebookLiveView({
   );
 }
 
+const CARD_ROW_GAP = 8;
+/** Razmak između imena i levog ruba dugmeta +1. */
+const NAME_TO_PLUS1_GAP = 5;
+
+function RosterTeamHeader({ side, teamName }: { side: 'home' | 'away'; teamName: string }) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={styles.rosterHeaderRow}>
+      <View style={styles.rosterHeaderInfoSlot}>
+        {side === 'home' ? (
+          <ThemedText
+            style={[styles.rosterTeamName, styles.rosterTeamNameLeft, { color: colors.text }]}
+            numberOfLines={2}>
+            {teamName}
+          </ThemedText>
+        ) : null}
+      </View>
+      {side === 'away' ? (
+        <View style={styles.rosterHeaderActionsMirror}>
+          <View style={styles.rosterHeaderBtnSpacer} />
+          <View style={styles.rosterHeaderPtsSlot}>
+            <ThemedText
+              style={[styles.rosterTeamName, styles.rosterTeamNameRight, { color: colors.text }]}
+              numberOfLines={2}>
+              {teamName}
+            </ThemedText>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.rosterHeaderActionsMirror} />
+      )}
+    </View>
+  );
+}
+
+function FitPlayerNameLine({
+  text,
+  baseStyle,
+  color,
+}: {
+  text: string;
+  baseStyle: object;
+  color: string;
+}) {
+  return (
+    <ThemedText
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.55}
+      style={[baseStyle, { color, maxWidth: '100%' }]}>
+      {text}
+    </ThemedText>
+  );
+}
+
+function PlayerRosterCard({
+  player: p,
+  payload,
+  busyKey,
+  colors,
+  onEvent,
+}: {
+  player: MatchScorebookRosterPlayer;
+  payload: MatchScorebookPayload;
+  busyKey: string | null;
+  colors: ReturnType<typeof useAppTheme>['colors'];
+  onEvent: (userId: string, type: EventType) => void;
+}) {
+  const fouledOut = p.fouls >= 5;
+  const canScore = payload.can_score && !fouledOut;
+  const canFoul = payload.can_score && !fouledOut;
+  const { lastName, firstName } = playerNameParts(p);
+  const [infoMaxWidth, setInfoMaxWidth] = useState<number | undefined>();
+  const cardRowWidthRef = useRef(0);
+  const actionsWidthRef = useRef(0);
+
+  const recomputeInfoWidth = useCallback(() => {
+    const rowW = cardRowWidthRef.current;
+    const actionsW = actionsWidthRef.current;
+    if (rowW > 0 && actionsW > 0) {
+      setInfoMaxWidth(Math.max(0, rowW - actionsW - CARD_ROW_GAP - NAME_TO_PLUS1_GAP));
+    }
+  }, []);
+
+  return (
+    <ThemedView style={[styles.playerCard, fouledOut && styles.playerFouledOut]}>
+      <View
+        style={styles.cardRow}
+        onLayout={(e) => {
+          cardRowWidthRef.current = e.nativeEvent.layout.width;
+          recomputeInfoWidth();
+        }}>
+        <View style={[styles.playerInfoCol, infoMaxWidth != null ? { maxWidth: infoMaxWidth } : null]}>
+          <View style={styles.playerView1}>
+            <View style={styles.playerView1a}>
+              <ThemedText style={[styles.jerseyNum, { color: colors.text }]}>
+                {p.jersey_number}
+              </ThemedText>
+            </View>
+            <View style={styles.playerView1b}>
+              <View style={styles.playerView1bLast}>
+                <FitPlayerNameLine
+                  text={lastName}
+                  baseStyle={styles.playerLastName}
+                  color={colors.text}
+                />
+              </View>
+              {firstName ? (
+                <View style={styles.playerView1bFirst}>
+                  <FitPlayerNameLine
+                    text={firstName}
+                    baseStyle={styles.playerFirstName}
+                    color={colors.textSecondary}
+                  />
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <View style={styles.foulRow}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <View
+                key={n}
+                style={[
+                  styles.foulBox,
+                  p.fouls >= n && styles.foulBoxActive,
+                  p.fouls >= 5 && n === 5 && styles.foulBoxOut,
+                ]}>
+                <ThemedText style={p.fouls >= n ? styles.foulBoxActiveText : styles.foulBoxText}>
+                  {n}
+                </ThemedText>
+              </View>
+            ))}
+            {fouledOut ? <ThemedText style={styles.outText}>OUT</ThemedText> : null}
+          </View>
+        </View>
+
+        <View
+          style={styles.playerActionsCol}
+          onLayout={(e) => {
+            actionsWidthRef.current = e.nativeEvent.layout.width;
+            recomputeInfoWidth();
+          }}>
+          <View style={styles.btnRow}>
+            <ScoreBtn
+              label="+1"
+              color="#2a9d4a"
+              disabled={!canScore || busyKey === `${p.user_id}-free_throw`}
+              busy={busyKey === `${p.user_id}-free_throw`}
+              onPress={() => onEvent(p.user_id, 'free_throw')}
+            />
+            <ScoreBtn
+              label="+2"
+              color={ActionAccentHex}
+              disabled={!canScore || busyKey === `${p.user_id}-field`}
+              busy={busyKey === `${p.user_id}-field`}
+              onPress={() => onEvent(p.user_id, 'field')}
+            />
+            <ScoreBtn
+              label="+3"
+              color="#7b3fbd"
+              disabled={!canScore || busyKey === `${p.user_id}-three`}
+              busy={busyKey === `${p.user_id}-three`}
+              onPress={() => onEvent(p.user_id, 'three')}
+            />
+            <ScoreBtn
+              label="!"
+              color="#c53939"
+              narrow
+              disabled={!canFoul || busyKey === `${p.user_id}-foul`}
+              busy={busyKey === `${p.user_id}-foul`}
+              onPress={() => onEvent(p.user_id, 'foul')}
+            />
+          </View>
+          <ThemedText style={[styles.ptsBadge, { color: colors.tint }]}>
+            {p.total_points}
+          </ThemedText>
+        </View>
+      </View>
+    </ThemedView>
+  );
+}
 function RosterList({
   roster,
   payload,
@@ -212,6 +413,8 @@ function RosterList({
   busyKey: string | null;
   onEvent: (userId: string, type: EventType) => void;
 }) {
+  const { colors } = useAppTheme();
+
   if (roster.length === 0) {
     return (
       <ThemedView style={styles.emptyCard}>
@@ -221,72 +424,16 @@ function RosterList({
   }
   return (
     <>
-      {roster.map((p) => {
-        const fouledOut = p.fouls >= 5;
-        const canScore = payload.can_score && !fouledOut;
-        const canFoul = payload.can_score && !fouledOut;
-        return (
-          <ThemedView key={p.user_id} style={[styles.playerCard, fouledOut && styles.playerFouledOut]}>
-            <View style={styles.rowMain}>
-              <View style={styles.nameBlock}>
-                <ThemedText style={styles.jerseyNum}>{p.jersey_number}</ThemedText>
-                <ThemedText style={styles.playerName} numberOfLines={1}>
-                  {playerName(p)}
-                </ThemedText>
-              </View>
-              <View style={styles.btnRow}>
-                <ScoreBtn
-                  label="+1"
-                  color="#2a9d4a"
-                  disabled={!canScore || busyKey === `${p.user_id}-free_throw`}
-                  busy={busyKey === `${p.user_id}-free_throw`}
-                  onPress={() => onEvent(p.user_id, 'free_throw')}
-                />
-                <ScoreBtn
-                  label="+2"
-                  color={ActionAccentHex}
-                  disabled={!canScore || busyKey === `${p.user_id}-field`}
-                  busy={busyKey === `${p.user_id}-field`}
-                  onPress={() => onEvent(p.user_id, 'field')}
-                />
-                <ScoreBtn
-                  label="+3"
-                  color="#7b3fbd"
-                  disabled={!canScore || busyKey === `${p.user_id}-three`}
-                  busy={busyKey === `${p.user_id}-three`}
-                  onPress={() => onEvent(p.user_id, 'three')}
-                />
-                <ScoreBtn
-                  label="!"
-                  color="#c53939"
-                  narrow
-                  disabled={!canFoul || busyKey === `${p.user_id}-foul`}
-                  busy={busyKey === `${p.user_id}-foul`}
-                  onPress={() => onEvent(p.user_id, 'foul')}
-                />
-              </View>
-              <ThemedText style={styles.ptsBadge}>{p.total_points}</ThemedText>
-            </View>
-
-            <View style={styles.foulRow}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <View
-                  key={n}
-                  style={[
-                    styles.foulBox,
-                    p.fouls >= n && styles.foulBoxActive,
-                    p.fouls >= 5 && n === 5 && styles.foulBoxOut,
-                  ]}>
-                  <ThemedText style={p.fouls >= n ? styles.foulBoxActiveText : styles.foulBoxText}>
-                    {n}
-                  </ThemedText>
-                </View>
-              ))}
-              {fouledOut ? <ThemedText style={styles.outText}>OUT</ThemedText> : null}
-            </View>
-          </ThemedView>
-        );
-      })}
+      {roster.map((p) => (
+        <PlayerRosterCard
+          key={p.user_id}
+          player={p}
+          payload={payload}
+          busyKey={busyKey}
+          colors={colors}
+          onEvent={onEvent}
+        />
+      ))}
     </>
   );
 }
@@ -335,20 +482,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#666',
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 4,
+    minHeight: 72,
   },
   headerCardLive: { borderColor: ActionAccentHex, backgroundColor: ActionAccentWash },
+  heroClubRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  heroClubName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    opacity: 0.85,
+  },
+  heroClubNameLeft: { textAlign: 'left' },
+  heroClubNameRight: { textAlign: 'right' },
+  heroScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 2,
+  },
+  heroScoreNum: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    minWidth: 36,
+    textAlign: 'center',
+  },
+  heroScoreSep: {
+    fontSize: 24,
+    fontWeight: '800',
+    opacity: 0.65,
+  },
   undoButton: {
     marginTop: 6,
     marginBottom: 2,
-    minHeight: 34,
+    minHeight: 40,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#d97706',
     paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   undoButtonDisabled: {
     opacity: 0.4,
@@ -356,76 +537,170 @@ const styles = StyleSheet.create({
   undoButtonText: {
     color: '#fff',
     fontWeight: '800',
-    fontSize: 12,
+    fontSize: 13,
   },
-  matchTitle: { fontSize: 14, textAlign: 'center' },
   statusLine: { textAlign: 'center', fontSize: 12 },
   statusLive: { color: ActionAccentHex, fontWeight: '700' },
-  teamBar: {
-    paddingVertical: 4,
-    paddingHorizontal: 2,
-    gap: 2,
-    marginBottom: 4,
+  rosterHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: CARD_ROW_GAP,
+    marginBottom: 6,
+    paddingHorizontal: 4,
+    minHeight: 36,
   },
-  teamBarText: { fontWeight: '700', fontSize: 13 },
-  swipeHint: { fontSize: 10, color: '#888' },
-  rosterContent: { paddingHorizontal: 4, paddingBottom: 20, gap: 2 },
+  rosterHeaderInfoSlot: {
+    flexShrink: 1,
+    minWidth: 0,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  rosterHeaderActionsMirror: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    flexShrink: 0,
+  },
+  /** Širina reda dugmadi (+1…!) — poravnava header gosta iznad kolone poena. */
+  rosterHeaderBtnSpacer: { width: 202 },
+  rosterHeaderPtsSlot: {
+    minWidth: 28,
+    maxWidth: 96,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  rosterTeamName: {
+    fontWeight: '800',
+    fontSize: 17,
+    lineHeight: 21,
+  },
+  rosterTeamNameLeft: {
+    textAlign: 'left',
+  },
+  rosterTeamNameRight: {
+    textAlign: 'right',
+  },
+  rosterContent: { paddingHorizontal: 4, paddingBottom: 20, gap: 4, paddingTop: 4 },
   emptyCard: { borderWidth: 1, borderColor: '#ccc', borderRadius: 6, padding: 8 },
   playerCard: {
     borderWidth: 1,
     borderColor: '#bbb',
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    gap: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   playerFouledOut: { opacity: 0.45 },
-  rowMain: {
+  cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    minHeight: 30,
+    justifyContent: 'space-between',
+    gap: 8,
+    minHeight: 64,
   },
-  nameBlock: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+  playerInfoCol: {
+    flexShrink: 1,
+    flexDirection: 'column',
+    justifyContent: 'center',
     gap: 4,
     minWidth: 0,
   },
-  jerseyNum: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#444',
-    minWidth: 18,
-    textAlign: 'center',
+  playerView1: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
   },
-  playerName: { flex: 1, fontWeight: '600', fontSize: 11, minWidth: 0 },
-  ptsBadge: { fontWeight: '800', fontSize: 12, minWidth: 20, textAlign: 'right' },
-  btnRow: { flexDirection: 'row', gap: 2, flexShrink: 0 },
+  playerView1a: {
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  playerView1b: {
+    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 1,
+    minWidth: 0,
+  },
+  playerView1bLast: {
+    minWidth: 0,
+  },
+  playerView1bFirst: {
+    minWidth: 0,
+  },
+  jerseyNum: {
+    fontSize: 26,
+    fontWeight: '800',
+    minWidth: 32,
+    textAlign: 'center',
+    lineHeight: 30,
+  },
+  playerLastName: {
+    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 17,
+  },
+  playerFirstName: {
+    fontWeight: '500',
+    fontSize: 12,
+    lineHeight: 15,
+  },
+  playerActionsCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  ptsBadge: {
+    fontWeight: '800',
+    fontSize: 26,
+    minWidth: 28,
+    textAlign: 'center',
+    alignSelf: 'center',
+    lineHeight: 30,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   scoreBtn: {
-    width: 30,
-    height: 26,
-    borderRadius: 4,
+    width: 46,
+    height: 46,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scoreBtnNarrow: { width: 24 },
+  scoreBtnNarrow: { width: 44, height: 44 },
   scoreBtnDisabled: { opacity: 0.35 },
-  scoreBtnText: { color: '#fff', fontWeight: '800', fontSize: 10 },
-  foulRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 },
+  scoreBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  foulRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   foulBox: {
-    width: 14,
-    height: 14,
+    width: 18,
+    height: 18,
     borderWidth: 1,
     borderColor: '#999',
-    borderRadius: 2,
+    borderRadius: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
   foulBoxActive: { backgroundColor: '#c53939', borderColor: '#c53939' },
   foulBoxOut: { backgroundColor: '#7a1d1d' },
-  foulBoxText: { color: '#666', fontSize: 7, fontWeight: '700' },
-  foulBoxActiveText: { color: '#fff', fontSize: 7, fontWeight: '800' },
-  outText: { color: '#c53939', fontWeight: '800', fontSize: 9, marginLeft: 3 },
+  foulBoxText: {
+    color: '#666',
+    fontSize: 9,
+    lineHeight: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  foulBoxActiveText: {
+    color: '#fff',
+    fontSize: 9,
+    lineHeight: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  outText: { color: '#c53939', fontWeight: '800', fontSize: 10, marginLeft: 4 },
 });
