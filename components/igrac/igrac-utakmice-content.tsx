@@ -144,6 +144,7 @@ export function IgracUtakmiceContent() {
                 matches={timetableMatches}
                 onMatchPress={(m) => router.push(`/igrac/utakmica/${m.id}` as never)}
                 renderMatch={renderMatch}
+                daySelectSoundId="ballBounce2"
               />
             )}
           </>

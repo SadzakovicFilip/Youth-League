@@ -7,6 +7,7 @@ import { IgracDashboardProvider } from '@/contexts/igrac-dashboard-context';
 import { HeaderTitleOverrideProvider } from '@/contexts/header-title-override-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { tabNavigatorChromeOptions } from '@/lib/main-tab-chrome';
+import { armTrainingTabPressSound } from '@/lib/app-feedback';
 
 export default function IgracLayout() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -25,6 +26,9 @@ export default function IgracLayout() {
               title: 'Treninzi i taktike',
               tabBarLabel: 'Treninzi',
               tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
+            }}
+            listeners={{
+              tabPress: () => armTrainingTabPressSound(),
             }}
           />
           <Tabs.Screen

@@ -2,8 +2,16 @@ import { ActionAccentHex, ActionAccentWash } from '@/constants/theme';
 import { useAppTheme } from '@/contexts/app-theme-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -24,6 +32,8 @@ import {
   sortTimetableDayMatches,
   ymdKey,
 } from '@/lib/match-calendar-utils';
+import { DEFAULT_UI_SOUND_ID, type AppFeedbackSoundAssetId } from '@/lib/app-feedback-sounds';
+import { scheduleTapFeedback } from '@/lib/app-feedback-touch';
 
 export type TimetableMatch = MatchCalendarMarkerInput & {
   id: number;
@@ -48,6 +58,8 @@ type Props<T extends TimetableMatch> = {
   renderMatch: (m: T) => ReactNode;
   onMatchPress?: (m: T) => void;
   emptyDayMessage?: string;
+  /** Zvuk pri izboru dana u mreži (npr. utakmice tab → ballBounce2). */
+  daySelectSoundId?: AppFeedbackSoundAssetId;
   /**
    * @deprecated Koristi prikazni status (display_status). Ostaje samo za treninge.
    */
@@ -64,6 +76,36 @@ type Props<T extends TimetableMatch> = {
 };
 
 const now = () => new Date();
+
+function LiveCalendarMarker({ color }: { color: string }) {
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1.38, { duration: 750, easing: Easing.out(Easing.quad) }),
+        withTiming(1, { duration: 750, easing: Easing.in(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+  }, [pulse]);
+
+  const ringStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+    opacity: 0.55 + ((pulse.value - 1) / 0.38) * 0.45,
+  }));
+
+  const dotStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 0.92 + ((pulse.value - 1) / 0.38) * 0.18 }],
+  }));
+
+  return (
+    <Animated.View style={[styles.liveRing, { borderColor: color }, ringStyle]}>
+      <Animated.View style={[styles.liveDot, { backgroundColor: color }, dotStyle]} />
+    </Animated.View>
+  );
+}
 
 function CalendarDayMarker({
   marker,
@@ -116,11 +158,7 @@ function CalendarDayMarker({
       );
     case 'uzivo': {
       const blue = tint(CALENDAR_LIVE_BLUE);
-      return (
-        <View style={[styles.liveRing, { borderColor: blue }]}>
-          <View style={[styles.liveDot, { backgroundColor: blue }]} />
-        </View>
-      );
+      return <LiveCalendarMarker color={blue} />;
     }
     case 'neodigrana':
       return (
@@ -159,8 +197,15 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
   accentWash,
   scheduleDayMarker = 'dot',
   listHeading,
+  daySelectSoundId,
 }: Props<T>) {
   const { colors, colorScheme } = useAppTheme();
+  const fireDefaultPressFeedback = () => {
+    scheduleTapFeedback('ui', { soundId: DEFAULT_UI_SOUND_ID });
+  };
+  const fireDaySelectFeedback = () => {
+    scheduleTapFeedback('ui', { soundId: daySelectSoundId ?? DEFAULT_UI_SOUND_ID });
+  };
   const statusColors = useMemo(
     () => getMatchCalendarStatusColors(colorScheme),
     [colorScheme],
@@ -253,13 +298,21 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
   return (
     <ThemedView style={styles.wrap}>
       <ThemedView style={[styles.monthRow, { borderColor: borderMuted }]}>
-        <Pressable onPress={goPrevMonth} style={styles.monthArrow} accessibilityLabel="Prethodni mesec">
+        <Pressable
+          onPressIn={fireDefaultPressFeedback}
+          onPress={goPrevMonth}
+          style={styles.monthArrow}
+          accessibilityLabel="Prethodni mesec">
           <MaterialIcons name="chevron-left" size={28} color={cellAccent} />
         </Pressable>
         <ThemedText type="defaultSemiBold" style={styles.monthTitle}>
           {monthTitle}
         </ThemedText>
-        <Pressable onPress={goNextMonth} style={styles.monthArrow} accessibilityLabel="Sledeci mesec">
+        <Pressable
+          onPressIn={fireDefaultPressFeedback}
+          onPress={goNextMonth}
+          style={styles.monthArrow}
+          accessibilityLabel="Sledeci mesec">
           <MaterialIcons name="chevron-right" size={28} color={cellAccent} />
         </Pressable>
       </ThemedView>
@@ -287,6 +340,7 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
           return (
             <Pressable
               key={key}
+              onPressIn={fireDaySelectFeedback}
               onPress={() => onPickDay(dayNum)}
               style={[
                 styles.dayCell,
@@ -336,7 +390,10 @@ export function MatchTimetableCalendar<T extends TimetableMatch>({
         <ThemedView style={styles.list}>
           {dayMatches.map((m) =>
             onMatchPress ? (
-              <Pressable key={m.id} onPress={() => onMatchPress(m)}>
+              <Pressable
+                key={m.id}
+                onPressIn={fireDefaultPressFeedback}
+                onPress={() => onMatchPress(m)}>
                 {renderMatch(m)}
               </Pressable>
             ) : (

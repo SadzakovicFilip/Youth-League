@@ -179,6 +179,7 @@ export default function TrenerUtakmiceScreen() {
               matches={data.all}
               renderMatch={renderMatch}
               onMatchPress={(m) => router.push(`/trener/utakmica/${m.id}` as never)}
+              daySelectSoundId="ballBounce2"
             />
           )}
         </>

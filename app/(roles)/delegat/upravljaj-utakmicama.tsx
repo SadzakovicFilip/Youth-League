@@ -216,6 +216,7 @@ export default function DelegatUpravljajUtakmicamaScreen() {
             matches={matches}
             renderMatch={renderMatch}
             onMatchPress={(m) => router.push(`/delegat/utakmica/${m.id}` as never)}
+            daySelectSoundId="ballBounce2"
           />
         </>
       ) : null}

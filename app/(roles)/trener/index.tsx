@@ -86,7 +86,11 @@ export default function TrenerHubScreen() {
           </Pressable>
         </View>
 
-        {chip === 'treninzi' ? <TrenerTreninziContent embedded /> : <TrenerTaktikeContent embedded />}
+        {chip === 'treninzi' ? (
+          <TrenerTreninziContent embedded />
+        ) : (
+          <TrenerTaktikeContent embedded />
+        )}
         </RefreshableScrollView>
       </View>
     </ScreenShell>

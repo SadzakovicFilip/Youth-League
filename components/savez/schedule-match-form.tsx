@@ -19,6 +19,7 @@ import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+import { triggerPressInFeedback, type AppFeedbackKind } from '@/lib/app-feedback';
 
 type Region = { id: number; name: string };
 type League = { id: number; name: string; region_id: number; season: string | null };
@@ -68,7 +69,22 @@ function parseWebDateTime(dateStr: string, timeStr: string): Date | null {
   return dt;
 }
 
-export function ScheduleMatchForm() {
+export function ScheduleMatchForm({ pressFeedback }: { pressFeedback?: AppFeedbackKind }) {
+  const PressableWithFeedback = useMemo(() => {
+    if (!pressFeedback) return Pressable;
+    return function FeedbackPressable(props: React.ComponentProps<typeof Pressable>) {
+      return (
+        <Pressable
+          {...props}
+          onPressIn={(ev) => {
+            triggerPressInFeedback(pressFeedback);
+            props.onPressIn?.(ev);
+          }}
+        />
+      );
+    };
+  }, [pressFeedback]);
+  const Btn = PressableWithFeedback;
   const { colors, colorScheme } = useAppTheme();
   const [regions, setRegions] = useState<Region[]>([]);
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -366,7 +382,7 @@ export function ScheduleMatchForm() {
               </>
             ) : (
               <>
-                <Pressable
+                <Btn
                   onPress={() => {
                     setDraftDate(matchDate ? new Date(matchDate) : new Date());
                     if (isAndroid) setAndroidDateOpen(true);
@@ -382,8 +398,8 @@ export function ScheduleMatchForm() {
                   <ThemedText style={{ color: matchDate ? colors.text : colors.textMuted }}>
                     {matchDate ? formatDateSr(matchDate) : 'Dodaj datum'}
                   </ThemedText>
-                </Pressable>
-                <Pressable
+                </Btn>
+                <Btn
                   onPress={() => {
                     const base = matchTime ? new Date(matchTime) : new Date();
                     if (!matchTime) base.setHours(19, 0, 0, 0);
@@ -401,7 +417,7 @@ export function ScheduleMatchForm() {
                   <ThemedText style={{ color: matchTime ? colors.text : colors.textMuted }}>
                     {matchTime ? formatTime24(matchTime) : 'Dodaj vreme'}
                   </ThemedText>
-                </Pressable>
+                </Btn>
                 {matchDate && matchTime ? (
                   <ThemedText style={{ color: colors.textSecondary, fontSize: 14 }}>
                     Termin: {formatDateSr(matchDate)} u {formatTime24(matchTime)}
@@ -425,7 +441,7 @@ export function ScheduleMatchForm() {
                 animationType="slide"
                 onRequestClose={() => setDateModalVisible(false)}>
                 <View style={styles.modalRoot}>
-                  <Pressable
+                  <Btn
                     style={[StyleSheet.absoluteFillObject, styles.dimmedBackdrop]}
                     onPress={() => setDateModalVisible(false)}
                     accessibilityLabel="Zatvori"
@@ -452,19 +468,19 @@ export function ScheduleMatchForm() {
                         }}
                       />
                       <View style={styles.modalActions}>
-                        <Pressable
+                        <Btn
                           onPress={() => setDateModalVisible(false)}
                           style={styles.modalGhostBtn}>
                           <ThemedText style={{ color: colors.textSecondary }}>Odustani</ThemedText>
-                        </Pressable>
-                        <Pressable
+                        </Btn>
+                        <Btn
                           onPress={() => {
                             setMatchDate(new Date(draftDate));
                             setDateModalVisible(false);
                           }}
                           style={[styles.modalPrimaryBtn, { backgroundColor: ActionAccentHex }]}>
                           <ThemedText style={styles.modalPrimaryBtnText}>Potvrdi</ThemedText>
-                        </Pressable>
+                        </Btn>
                       </View>
                     </ThemedView>
                   </View>
@@ -477,7 +493,7 @@ export function ScheduleMatchForm() {
                 animationType="slide"
                 onRequestClose={() => setTimeModalVisible(false)}>
                 <View style={styles.modalRoot}>
-                  <Pressable
+                  <Btn
                     style={[StyleSheet.absoluteFillObject, styles.dimmedBackdrop]}
                     onPress={() => setTimeModalVisible(false)}
                     accessibilityLabel="Zatvori"
@@ -505,19 +521,19 @@ export function ScheduleMatchForm() {
                         }}
                       />
                       <View style={styles.modalActions}>
-                        <Pressable
+                        <Btn
                           onPress={() => setTimeModalVisible(false)}
                           style={styles.modalGhostBtn}>
                           <ThemedText style={{ color: colors.textSecondary }}>Odustani</ThemedText>
-                        </Pressable>
-                        <Pressable
+                        </Btn>
+                        <Btn
                           onPress={() => {
                             setMatchTime(new Date(draftTime));
                             setTimeModalVisible(false);
                           }}
                           style={[styles.modalPrimaryBtn, { backgroundColor: ActionAccentHex }]}>
                           <ThemedText style={styles.modalPrimaryBtnText}>Potvrdi</ThemedText>
-                        </Pressable>
+                        </Btn>
                       </View>
                     </ThemedView>
                   </View>
@@ -550,7 +566,7 @@ export function ScheduleMatchForm() {
             />
           ) : null}
 
-          <Pressable
+          <Btn
             style={[
               styles.button,
               loading && styles.buttonDisabled,
@@ -580,7 +596,7 @@ export function ScheduleMatchForm() {
             ) : (
               <ThemedText style={styles.buttonText}>Zakazi utakmicu</ThemedText>
             )}
-          </Pressable>
+          </Btn>
         </>
       ) : null}
       </View>

@@ -22,6 +22,7 @@ import { ThemedView } from '@/components/themed-view';
 import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { buildTrainingRichTheme } from '@/lib/training-calendar-theme';
 import { supabase } from '@/lib/supabase';
+import { triggerPressInFeedback, type AppFeedbackKind } from '@/lib/app-feedback';
 
 type Training = {
   id: number;
@@ -42,6 +43,7 @@ type Payload = {
 type Props = {
   /** U tabu „Treninzi i taktike“ — bez sopstvenog scroll-a. */
   embedded?: boolean;
+  pressFeedback?: AppFeedbackKind;
 };
 
 const CELEBRATION_GREEN = '#047857';
@@ -54,7 +56,21 @@ function defaultTrainingDate(): Date {
   return d;
 }
 
-export function TrenerTreninziContent({ embedded = false }: Props) {
+export function TrenerTreninziContent({ embedded = false, pressFeedback }: Props) {
+  const Btn = useMemo(() => {
+    if (!pressFeedback) return Pressable;
+    return function FeedbackPressable(props: React.ComponentProps<typeof Pressable>) {
+      return (
+        <Pressable
+          {...props}
+          onPressIn={(ev) => {
+            triggerPressInFeedback(pressFeedback);
+            props.onPressIn?.(ev);
+          }}
+        />
+      );
+    };
+  }, [pressFeedback]);
   const { colors, colorScheme } = useAppTheme();
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -229,7 +245,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
 
       {data?.can_manage ? (
         <View style={[styles.addRow, embedded && styles.addRowEmbedded]}>
-          <Pressable
+          <Btn
             style={[
               styles.addButton,
               {
@@ -243,7 +259,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
             <ThemedText style={[styles.addButtonText, { color: trainingPalette.navy }]}>
               {showForm ? 'Zatvori' : 'Dodaj trening'}
             </ThemedText>
-          </Pressable>
+          </Btn>
         </View>
       ) : null}
 
@@ -283,7 +299,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
                 Termin treninga
               </ThemedText>
               <View style={styles.pickerRow}>
-                <Pressable
+                <Btn
                   style={[
                     styles.pickerBtn,
                     { borderColor: colors.borderStrong, backgroundColor: colors.surfaceMuted },
@@ -297,8 +313,8 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
                     {dateLabel}
                   </ThemedText>
                   <ThemedText style={{ color: colors.textMuted, fontSize: 12 }}>Datum</ThemedText>
-                </Pressable>
-                <Pressable
+                </Btn>
+                <Btn
                   style={[
                     styles.pickerBtn,
                     { borderColor: colors.borderStrong, backgroundColor: colors.surfaceMuted },
@@ -312,7 +328,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
                     {timeLabel}
                   </ThemedText>
                   <ThemedText style={{ color: colors.textMuted, fontSize: 12 }}>Vreme</ThemedText>
-                </Pressable>
+                </Btn>
               </View>
               {datePickerOpen ? (
                 <DateTimePicker
@@ -370,7 +386,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
             style={[styles.inputSpacing, styles.inputMulti]}
             multiline
           />
-          <Pressable
+          <Btn
             style={[
               styles.button,
               {
@@ -405,7 +421,7 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
             ) : (
               <ThemedText style={styles.buttonText}>Sačuvaj trening</ThemedText>
             )}
-          </Pressable>
+          </Btn>
         </ThemedView>
       ) : null}
 
@@ -469,6 +485,8 @@ export function TrenerTreninziContent({ embedded = false }: Props) {
                 playersPresent={t.players_present}
                 playersTotal={t.players_total}
                 onPress={() => router.push(`/trener/trening/${t.id}` as never)}
+                openPressFeedback="stopwatchStart"
+                pressFeedback={pressFeedback}
                 onDelete={data.can_manage ? () => confirmDeleteTraining(t.id) : undefined}
               />
             )}

@@ -9,9 +9,10 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
-import { BasketballBrandMark } from '@/components/basketball-brand-mark';
+import { LoginIntroLogoMark, useLoginContentReveal } from '@/components/login-intro-logo';
 import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedTextInput } from '@/components/themed-text-input';
@@ -41,6 +42,8 @@ export default function LoginScreen() {
     android: { fontFamily: 'sans-serif-condensed', fontWeight: '800' as const },
     default: { fontWeight: '900' as const },
   });
+
+  const { titleStyle, formStyle } = useLoginContentReveal();
 
   useScreenPullRefresh(
     useCallback(async () => {
@@ -126,12 +129,15 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
-            <BasketballBrandMark size="lg" />
-            <ThemedText style={[styles.sportsTitle, sportsTitleFont, { color: text }]}>
-              Košarkaška Liga Srbije
-            </ThemedText>
+            <LoginIntroLogoMark />
+            <Animated.View style={titleStyle}>
+              <ThemedText style={[styles.sportsTitle, sportsTitleFont, { color: text }]}>
+                Košarkaška Liga Srbije
+              </ThemedText>
+            </Animated.View>
           </View>
 
+          <Animated.View style={formStyle}>
           <ThemedView
             style={[styles.card, { backgroundColor: surface, borderColor: border, marginTop: 25 }]}>
             <ThemedText type="subtitle">Prijava</ThemedText>
@@ -190,6 +196,7 @@ export default function LoginScreen() {
               <ThemedText style={[styles.error, { color: danger }]}>{errorMessage}</ThemedText>
             ) : null}
           </ThemedView>
+          </Animated.View>
         </RefreshableScrollView>
       </KeyboardAvoidingView>
     </ScreenShell>
@@ -205,7 +212,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 20,
   },
-  hero: { alignItems: 'center', gap: 8 },
+  hero: { alignItems: 'center', gap: 8, overflow: 'visible' },
   sportsTitle: {
     marginTop: 8,
     textAlign: 'center',

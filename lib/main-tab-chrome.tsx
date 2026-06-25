@@ -1,6 +1,7 @@
 import type { BottomTabHeaderProps, BottomTabNavigationOptions } from '@react-navigation/bottom-tabs';
 
 import { AppChromeHeader } from '@/components/app-chrome-header';
+import { FeedbackTabBarButton } from '@/components/feedback-tab-bar-button';
 import { useHeaderTitleOverrideOptional } from '@/contexts/header-title-override-context';
 import { Colors } from '@/constants/theme';
 
@@ -44,5 +45,6 @@ export function tabNavigatorChromeOptions(
       backgroundColor: c.tabBar,
       borderTopColor: c.tabBarBorder,
     },
+    tabBarButton: FeedbackTabBarButton,
   };
 }

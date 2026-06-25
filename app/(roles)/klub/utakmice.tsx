@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
 
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
+import { triggerPressInFeedback } from '@/lib/app-feedback';
 import { MatchCalendarLegend } from '@/components/shared/match-calendar-legend';
 import {
   MatchRichCard,
@@ -299,6 +300,7 @@ export default function KlubUtakmiceScreen() {
           scoreLine={formatScore(m.home_score, m.away_score)}
           outcome={playedOutcomeLetter(side, m.home_score, m.away_score, null)}
           onPress={() => router.push(matchHref)}
+          pressFeedback="swish"
         />
       ) : (
         <MatchRichCard
@@ -312,6 +314,7 @@ export default function KlubUtakmiceScreen() {
           awayScore={m.away_score}
           matchTime={timeStr}
           onPress={() => router.push(matchHref)}
+          pressFeedback="swish"
         />
       );
     }
@@ -361,6 +364,7 @@ export default function KlubUtakmiceScreen() {
         scoreLine={formatScore(m.home_score, m.away_score)}
         outcome={playedOutcomeLetter(side, m.home_score, m.away_score, null)}
         onPress={() => router.push(matchHref)}
+        pressFeedback="swish"
         footer={scorerFooter}
       />
     ) : (
@@ -375,6 +379,7 @@ export default function KlubUtakmiceScreen() {
         awayScore={m.away_score}
         matchTime={timeStr}
         onPress={() => router.push(matchHref)}
+        pressFeedback="swish"
         footer={scorerFooter}
       />
     );
@@ -384,6 +389,7 @@ export default function KlubUtakmiceScreen() {
     <RefreshableScrollView contentContainerStyle={styles.container}>
       <ThemedView style={styles.tabRow}>
         <Pressable
+          onPressIn={() => triggerPressInFeedback('swish')}
           style={[
             styles.tabButton,
             { borderColor: colors.borderStrong },
@@ -395,6 +401,7 @@ export default function KlubUtakmiceScreen() {
           </ThemedText>
         </Pressable>
         <Pressable
+          onPressIn={() => triggerPressInFeedback('swish')}
           style={[
             styles.tabButton,
             { borderColor: colors.borderStrong },
@@ -425,7 +432,7 @@ export default function KlubUtakmiceScreen() {
         <>
           <ThemedText type="subtitle">Raspored utakmica</ThemedText>
           <MatchCalendarLegend />
-          <MatchTimetableCalendar matches={tabMatches} renderMatch={renderMatch} />
+          <MatchTimetableCalendar matches={tabMatches} renderMatch={renderMatch} daySelectSoundId="ballBounce2" />
         </>
       ) : null}
     </RefreshableScrollView>

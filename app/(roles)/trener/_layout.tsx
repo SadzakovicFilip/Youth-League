@@ -6,6 +6,7 @@ import { Colors } from '@/constants/theme';
 import { HeaderTitleOverrideProvider } from '@/contexts/header-title-override-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { tabNavigatorChromeOptions } from '@/lib/main-tab-chrome';
+import { armTrainingTabPressSound } from '@/lib/app-feedback';
 
 export default function TrenerLayout() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -31,6 +32,9 @@ export default function TrenerLayout() {
           title: 'Treninzi i taktike',
           tabBarLabel: 'Treninzi',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="bolt.fill" color={color} />,
+        }}
+        listeners={{
+          tabPress: () => armTrainingTabPressSound(),
         }}
       />
       <Tabs.Screen

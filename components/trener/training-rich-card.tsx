@@ -7,6 +7,7 @@ import {
   type MatchRichTheme,
 } from '@/components/shared/match-rich-card';
 import { ThemedText } from '@/components/themed-text';
+import { triggerPressInFeedback, type AppFeedbackKind } from '@/lib/app-feedback';
 
 export type TrainingRichCardProps = {
   theme: MatchRichTheme;
@@ -20,6 +21,8 @@ export type TrainingRichCardProps = {
   playersTotal: number;
   onPress?: () => void;
   onDelete?: () => void;
+  pressFeedback?: AppFeedbackKind;
+  openPressFeedback?: AppFeedbackKind;
 };
 
 function formatTimeSr(iso: string): string {
@@ -44,6 +47,8 @@ export function TrainingRichCard({
   playersTotal,
   onPress,
   onDelete,
+  pressFeedback,
+  openPressFeedback,
 }: TrainingRichCardProps) {
   const stripe = stripeColor ?? theme.tint;
   const dateStr = formatMatchDateDdMmYyyy(scheduledIso);
@@ -141,6 +146,10 @@ export function TrainingRichCard({
 
   const main = onPress ? (
     <Pressable
+      onPressIn={() => {
+        if (openPressFeedback) triggerPressInFeedback(openPressFeedback);
+        else if (pressFeedback) triggerPressInFeedback(pressFeedback);
+      }}
       onPress={onPress}
       style={styles.pressFlex}
       accessibilityRole="button"
@@ -162,6 +171,9 @@ export function TrainingRichCard({
       ]}>
       {main}
       <Pressable
+        onPressIn={() => {
+          if (pressFeedback) triggerPressInFeedback(pressFeedback);
+        }}
         onPress={onDelete}
         style={[styles.deleteStrip, { borderLeftColor: theme.danger }]}
         accessibilityLabel="Obriši trening"

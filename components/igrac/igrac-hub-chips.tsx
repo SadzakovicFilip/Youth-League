@@ -1,5 +1,6 @@
 import { ActionAccentHex } from '@/constants/theme';
 import { useAppTheme } from '@/contexts/app-theme-context';
+import { triggerPressInFeedback, type AppFeedbackKind } from '@/lib/app-feedback';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -13,9 +14,15 @@ type Props<T extends string> = {
   value: T;
   options: ChipOption<T>[];
   onChange: (value: T) => void;
+  pressFeedback?: AppFeedbackKind;
 };
 
-export function IgracHubChips<T extends string>({ value, options, onChange }: Props<T>) {
+export function IgracHubChips<T extends string>({
+  value,
+  options,
+  onChange,
+  pressFeedback,
+}: Props<T>) {
   const { colors } = useAppTheme();
 
   return (
@@ -32,6 +39,9 @@ export function IgracHubChips<T extends string>({ value, options, onChange }: Pr
                 borderColor: active ? ActionAccentHex : colors.borderStrong,
               },
             ]}
+            onPressIn={() => {
+              if (pressFeedback) triggerPressInFeedback(pressFeedback);
+            }}
             onPress={() => onChange(opt.value)}>
             <ThemedText
               type="defaultSemiBold"

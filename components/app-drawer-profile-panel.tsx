@@ -4,6 +4,7 @@ import { type ComponentProps, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppSoundsToggle } from '@/components/app-sounds-toggle';
+import { AppVibrationToggle } from '@/components/app-vibration-toggle';
 import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDrawer } from '@/contexts/app-drawer-context';
@@ -224,6 +225,9 @@ export function AppDrawerProfilePanel({ open }: { open: boolean }) {
         <View style={styles.topBarToggles}>
           <View style={styles.toggleRow}>
             <AppSoundsToggle variant="inline" />
+          </View>
+          <View style={styles.toggleRow}>
+            <AppVibrationToggle variant="inline" />
           </View>
           <View style={styles.toggleRow}>
             <ThemeProfileToggle variant="inline" />

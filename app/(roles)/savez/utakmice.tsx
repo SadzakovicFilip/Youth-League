@@ -4,7 +4,7 @@ import { ScreenShell } from '@/components/screen-shell';
 export default function UtakmiceScreen() {
   return (
     <ScreenShell>
-      <ScheduleMatchForm />
+      <ScheduleMatchForm pressFeedback="swish" />
     </ScreenShell>
   );
 }

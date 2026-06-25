@@ -8,6 +8,7 @@ import { useAppTheme, type AppThemeColors } from '@/contexts/app-theme-context';
 import { type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { MatchLiveFeedbackToggle } from '@/components/match-live-feedback-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import type {
@@ -270,6 +271,7 @@ export function MatchFinishedBoxScoreView({
                 ) : null}
               </View>
             ) : null}
+            {liveDisplay ? <MatchLiveFeedbackToggle matchId={m.id} /> : null}
           </ThemedView>
 
           {belowHero}

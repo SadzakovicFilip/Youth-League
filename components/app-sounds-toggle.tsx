@@ -1,6 +1,7 @@
 import { Platform, StyleSheet, Switch, View } from 'react-native';
 
-import { useAppSounds } from '@/contexts/app-sounds-context';
+import { useAppFeedback } from '@/contexts/app-sounds-context';
+import { triggerDrawerToggleFeedback } from '@/lib/app-feedback';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { ThemedText } from '@/components/themed-text';
 
@@ -16,7 +17,7 @@ export type AppSoundsToggleProps = {
 
 /** Prekidač zvukova aplikacije (pištaljka, koš, faul…). */
 export function AppSoundsToggle({ variant = 'inline' }: AppSoundsToggleProps) {
-  const { soundsEnabled, setSoundsEnabled } = useAppSounds();
+  const { soundsEnabled, setSoundsEnabled } = useAppFeedback();
   const accent = useThemeColor({}, 'accent');
 
   if (variant === 'inline') {
@@ -28,7 +29,10 @@ export function AppSoundsToggle({ variant = 'inline' }: AppSoundsToggleProps) {
         <Switch
           accessibilityLabel="Uključi ili isključi zvukove aplikacije"
           value={soundsEnabled}
-          onValueChange={(v) => void setSoundsEnabled(v)}
+          onValueChange={(v) => {
+            triggerDrawerToggleFeedback();
+            void setSoundsEnabled(v);
+          }}
           trackColor={{ false: '#C8C8C8', true: accent }}
           thumbColor={soundsEnabled ? '#F4F4F4' : '#FFFFFF'}
           ios_backgroundColor="#C8C8C8"

@@ -1,6 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { ActionAccentHex } from '@/constants/theme';
 import { useAppTheme } from '@/contexts/app-theme-context';
+import { triggerPressInFeedback, type AppFeedbackKind } from '@/lib/app-feedback';
 import { monthTitleSr } from '@/lib/match-calendar-utils';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -14,6 +15,7 @@ import { IgracScreenState } from './igrac-screen-state';
 
 type Props = {
   embedded?: boolean;
+  pressFeedback?: AppFeedbackKind;
 };
 
 type MonthKey = {
@@ -89,7 +91,7 @@ function AttendanceCard({ row }: { row: IgracAttendanceRow }) {
   );
 }
 
-export function IgracPrisustvoContent({ embedded = false }: Props) {
+export function IgracPrisustvoContent({ embedded = false, pressFeedback }: Props) {
   const { colors } = useAppTheme();
   const { loading, errorMessage, data } = useIgracDashboard();
   const rows = data?.trainings ?? [];
@@ -155,6 +157,9 @@ export function IgracPrisustvoContent({ embedded = false }: Props) {
       {!loading && !errorMessage && availableMonths.length > 0 && selectedMonth ? (
         <ThemedView style={[styles.monthRow, { borderColor: colors.borderStrong, backgroundColor: colors.surface }]}>
           <Pressable
+            onPressIn={() => {
+              if (pressFeedback) triggerPressInFeedback(pressFeedback);
+            }}
             onPress={() => {
               if (!canGoOlder) return;
               setSelectedMonth(availableMonths[selectedIndex + 1]);
@@ -172,6 +177,9 @@ export function IgracPrisustvoContent({ embedded = false }: Props) {
             {monthLabel}
           </ThemedText>
           <Pressable
+            onPressIn={() => {
+              if (pressFeedback) triggerPressInFeedback(pressFeedback);
+            }}
             onPress={() => {
               if (!canGoNewer) return;
               setSelectedMonth(availableMonths[selectedIndex - 1]);

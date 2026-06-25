@@ -17,6 +17,7 @@ import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { supabase } from '@/lib/supabase';
+import { triggerAppFeedback } from '@/lib/app-feedback';
 import { formatMatchDisplayStatus, isMatchDisplayLive } from '@/lib/match-display-status';
 
 type Conditions = {
@@ -193,6 +194,7 @@ export default function DelegatMatchDetailScreen() {
       setErrorMessage(error.message);
       return;
     }
+    triggerAppFeedback('whistleStart', { matchId });
     await load();
   };
 
@@ -205,6 +207,7 @@ export default function DelegatMatchDetailScreen() {
       setErrorMessage(error.message);
       return;
     }
+    triggerAppFeedback('matchEnd', { matchId });
     await load();
   };
 

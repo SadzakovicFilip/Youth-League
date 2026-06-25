@@ -41,8 +41,7 @@ import {
   type MatchScoreFlashPayload,
   type MatchWhistlePhase,
 } from '@/lib/match-score-flash-label';
-import { playMatchAppSound, soundForFlashPayload } from '@/lib/match-app-sounds';
-import { useAppSounds } from '@/contexts/app-sounds-context';
+import { playMatchAppSoundForFlash } from '@/lib/app-feedback';
 import { normalizeLiveScorebookPayload } from '@/lib/match-scorebook-normalize';
 export type {
   MatchScorebookDetailMatchInfo,
@@ -117,9 +116,6 @@ export const MatchScorebookDetailView = forwardRef<
   flashRef.current = flash;
   const presentedDataRef = useRef(presentedData);
   presentedDataRef.current = presentedData;
-  const soundsEnabledRef = useRef(true);
-  const { soundsEnabled } = useAppSounds();
-  soundsEnabledRef.current = soundsEnabled;
   const rosterRef = useRef<{ home: MatchScorebookPayload['home_roster']; away: MatchScorebookPayload['away_roster'] }>({
     home: [],
     away: [],
@@ -239,13 +235,10 @@ export const MatchScorebookDetailView = forwardRef<
       if (lastWhistleFlashKeyRef.current === payload.key) return;
       lastWhistleFlashKeyRef.current = payload.key;
     }
-    if (soundsEnabledRef.current) {
-      const soundId = soundForFlashPayload(payload);
-      if (soundId) void playMatchAppSound(soundId);
-    }
+    playMatchAppSoundForFlash(payload, matchId);
     flashActiveRef.current = true;
     setFlash(payload);
-  }, []);
+  }, [matchId]);
 
   beginFlashRef.current = beginFlash;
 

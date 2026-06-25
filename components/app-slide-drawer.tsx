@@ -13,6 +13,7 @@ import { AppDrawerProfilePanel } from '@/components/app-drawer-profile-panel';
 import { useAppDrawer } from '@/contexts/app-drawer-context';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { appFeedbackTouchHandlers } from '@/lib/app-feedback-touch';
 
 const DRAWER_W = Math.min(340, Dimensions.get('window').width * 0.88);
 
@@ -38,7 +39,7 @@ export function AppSlideDrawer() {
 
   return (
     <Modal visible={open} animationType="none" transparent onRequestClose={closeDrawer}>
-      <View style={styles.modalRoot}>
+      <View style={styles.modalRoot} {...appFeedbackTouchHandlers}>
         <Pressable style={styles.backdrop} onPress={closeDrawer} accessibilityLabel="Zatvori meni" />
         <Animated.View
           style={[

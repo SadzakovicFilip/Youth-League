@@ -3,6 +3,7 @@ import { Platform, StyleSheet, Switch, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppTheme } from '@/contexts/app-theme-context';
+import { triggerDrawerToggleFeedback } from '@/lib/app-feedback';
 import { useThemeColor } from '@/hooks/use-theme-color';
 
 const drawerToggleTitleFont = Platform.select({
@@ -50,7 +51,10 @@ export function ThemeProfileToggle({ variant = 'card', prominent }: ThemeProfile
         <Switch
           accessibilityLabel="Prebaci tamnu temu"
           value={isDark}
-          onValueChange={(v) => void setColorScheme(v ? 'dark' : 'light')}
+          onValueChange={(v) => {
+            triggerDrawerToggleFeedback();
+            void setColorScheme(v ? 'dark' : 'light');
+          }}
           trackColor={{ false: '#C8C8C8', true: accent }}
           thumbColor={isDark ? '#F4F4F4' : '#FFFFFF'}
           ios_backgroundColor="#C8C8C8"
@@ -79,7 +83,10 @@ export function ThemeProfileToggle({ variant = 'card', prominent }: ThemeProfile
       <Switch
         accessibilityLabel="Prebaci tamnu temu"
         value={isDark}
-        onValueChange={(v) => void setColorScheme(v ? 'dark' : 'light')}
+        onValueChange={(v) => {
+          triggerDrawerToggleFeedback();
+          void setColorScheme(v ? 'dark' : 'light');
+        }}
         trackColor={{ false: '#C8C8C8', true: accent }}
         thumbColor={isDark ? '#F4F4F4' : '#FFFFFF'}
         ios_backgroundColor="#C8C8C8"

@@ -9,6 +9,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { AppGlobalPressFeedback } from "@/components/app-global-press-feedback";
 import { AppSlideDrawer } from "@/components/app-slide-drawer";
 import { Colors } from "@/constants/theme";
 import { AppDrawerProvider } from "@/contexts/app-drawer-context";
@@ -100,7 +101,9 @@ export default function RootLayout() {
           <AppDrawerProvider>
             <>
               <RootSafeAreaFrame>
-                <RootNavigation />
+                <AppGlobalPressFeedback>
+                  <RootNavigation />
+                </AppGlobalPressFeedback>
               </RootSafeAreaFrame>
               <AppSlideDrawer />
             </>

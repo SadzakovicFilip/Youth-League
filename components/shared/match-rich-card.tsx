@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
 import { isMatchDisplayLive } from "@/lib/match-display-status";
+import { triggerPressInFeedback, type AppFeedbackKind } from "@/lib/app-feedback";
 
 export function formatMatchDateDdMmYyyy(iso: string | null | undefined): string {
   if (!iso?.trim()) return "—";
@@ -64,6 +65,8 @@ type Base = {
   headline?: string;
   /** Kada je postavljeno, cela kartica je klikabilna. */
   onPress?: () => void;
+  /** SFX + haptic na pritisak (onPressIn), pre navigacije. */
+  pressFeedback?: AppFeedbackKind;
   /** Sadržaj ispod redova utakmice (npr. zapisničar) — unutar iste kartice. */
   footer?: ReactNode;
 };
@@ -286,6 +289,9 @@ export function MatchRichCard(props: MatchRichCardProps) {
   if (cardPressable) {
     return (
       <Pressable
+        onPressIn={() => {
+          if (props.pressFeedback) triggerPressInFeedback(props.pressFeedback);
+        }}
         onPress={onPress}
         style={styles.pressWrap}
         accessibilityRole="button"
