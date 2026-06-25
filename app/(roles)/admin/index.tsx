@@ -1,9 +1,14 @@
-import { Link, router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { ActionAccentHex } from '@/constants/theme';
+import { Link } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
+import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { sanitizeUsername } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 
@@ -43,23 +48,21 @@ export default function AdminHomeScreen() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState('');
 
-  useEffect(() => {
-    const loadAllowed = async () => {
-      const checks = await Promise.all(
-        CANDIDATE_ROLES.map(async (r) => {
-          const { data, error } = await supabase.rpc('can_create_role', { p_target: r });
-          return { role: r, allowed: !error && !!data };
-        })
-      );
-      setAllowedRoles(checks.filter((c) => c.allowed).map((c) => c.role));
-    };
-    loadAllowed();
+  const loadAllowed = useCallback(async () => {
+    const checks = await Promise.all(
+      CANDIDATE_ROLES.map(async (r) => {
+        const { data, error } = await supabase.rpc('can_create_role', { p_target: r });
+        return { role: r, allowed: !error && !!data };
+      })
+    );
+    setAllowedRoles(checks.filter((c) => c.allowed).map((c) => c.role));
   }, []);
 
-  const onLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
+  useEffect(() => {
+    void loadAllowed();
+  }, [loadAllowed]);
+
+  useScreenPullRefresh(loadAllowed);
 
   const onSubmit = async () => {
     if (!role || !username.trim() || !password.trim()) {
@@ -115,14 +118,13 @@ export default function AdminHomeScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScreenShell>
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.headerRow}>
         <ThemedText type="title">Admin Dashboard</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
       </ThemedView>
       <ThemedText>Globalno upravljanje korisnicima, pravilima i sistemskim postavkama.</ThemedText>
+      <ThemedText style={styles.drawerHint}>Tema naloga i odjava: bočni meni.</ThemedText>
       <Link href="/home" style={styles.link}>
         Otvori shared home
       </Link>
@@ -167,7 +169,8 @@ export default function AdminHomeScreen() {
           <ThemedText>{result}</ThemedText>
         </ThemedView>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
+    </ScreenShell>
   );
 }
 
@@ -183,16 +186,15 @@ function Field({ label, value, onChangeText, placeholder, secureTextEntry }: Fie
   return (
     <ThemedView style={styles.fieldGroup}>
       <ThemedText>{label}</ThemedText>
-      <TextInput
+      <ThemedTextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#888"
         secureTextEntry={secureTextEntry}
         autoCapitalize="none"
         autoCorrect={false}
         spellCheck={false}
-        style={styles.input}
+        style={styles.inputSpacing}
       />
     </ThemedView>
   );
@@ -205,25 +207,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
+  drawerHint: { opacity: 0.85, fontSize: 14 },
   link: { textDecorationLine: 'underline', fontSize: 16 },
   fieldGroup: { gap: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: '#111',
-    backgroundColor: '#fff',
-  },
+  inputSpacing: { marginTop: 4 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
     borderWidth: 1,
@@ -232,7 +219,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  chipActive: { backgroundColor: '#0a7ea4', borderColor: '#0a7ea4' },
+  chipActive: { backgroundColor: ActionAccentHex, borderColor: ActionAccentHex },
   chipActiveText: { color: '#fff', fontWeight: '600' },
   button: {
     marginTop: 8,
@@ -240,7 +227,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
+    backgroundColor: ActionAccentHex,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600' },

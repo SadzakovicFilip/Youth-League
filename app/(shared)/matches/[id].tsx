@@ -1,27 +1,38 @@
-import { useLocalSearchParams } from 'expo-router';
-import { StyleSheet } from 'react-native';
-
+import { FinishedMatchPreferScorebook } from '@/components/shared/finished-match-prefer-scorebook';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { ScreenShell } from '@/components/screen-shell';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 export default function MatchDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const matchId = Number(id);
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title">Detalji utakmice</ThemedText>
-      <ThemedText>Match ID: {id}</ThemedText>
-      <ThemedText>
-        Ovde ide shared prikaz rezultata, statistike utakmice i summary podataka.
-      </ThemedText>
-    </ThemedView>
+    <ScreenShell>
+      <View style={styles.wrapper}>
+        <View style={styles.body}>
+          <FinishedMatchPreferScorebook
+            matchId={matchId}
+            publicTopSlot={
+              <Pressable style={styles.back} onPress={() => router.back()}>
+                <ThemedText style={styles.backText}>← Nazad</ThemedText>
+              </Pressable>
+            }
+          />
+        </View>
+      </View>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    gap: 10,
-    padding: 16,
+  wrapper: { flex: 1 },
+  body: { flex: 1 },
+  back: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
+  backText: { fontWeight: '600' },
 });

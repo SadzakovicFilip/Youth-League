@@ -1,18 +1,23 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 
 export default function TrenerClanarineScreen() {
+  useScreenPullRefresh(useCallback(() => Promise.resolve(), []));
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
       <ThemedText type="title">CLANARINE</ThemedText>
       <ThemedText>Ovde ide evidencija clanarina, status uplata i podsetnici.</ThemedText>
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 

@@ -1,11 +1,29 @@
+import type { BreadcrumbItem } from '@/components/savez/savez-breadcrumbs';
+import { LicenseValidUntilField } from '@/components/license-valid-until-field';
+import { ActionAccentHex } from '@/constants/theme';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useSyncTakmicenjeDrillChrome } from '@/contexts/takmicenje-drill-chrome-context';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { ThemedTextInput } from '@/components/themed-text-input';
 import { ThemedView } from '@/components/themed-view';
-import { pickLicensePdf, saveUserLicense, uploadLicensePdf } from '@/lib/license-upload';
+import {
+  pickLicensePdf,
+  saveUserLicense,
+  uploadLicensePdf,
+} from '@/lib/license-upload';
 import { openLicensePdf } from '@/lib/license-viewer';
 import { supabase } from '@/lib/supabase';
 
@@ -42,18 +60,49 @@ type Payload = {
 
 type Props = {
   userId: string;
-  onBack?: () => void;
+  syncDrillChrome?: boolean;
 };
 
-export function SudijaDetailView({ userId, onBack }: Props) {
+function parseYyyyMmDd(s: string | null | undefined): Date | null {
+  if (!s?.trim()) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d, 12, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function toYyyyMmDd(d: Date): string {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+export function SudijaDetailView({
+  userId,
+  syncDrillChrome = false,
+}: Props) {
+  const { colors } = useAppTheme();
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
 
+  const [ligaExpanded, setLigaExpanded] = useState(false);
+  const [licencaExpanded, setLicencaExpanded] = useState(false);
+  const [licenseEditorOpen, setLicenseEditorOpen] = useState(false);
+
   const [licenseNumber, setLicenseNumber] = useState('');
-  const [validUntil, setValidUntil] = useState('');
+  const [validUntilDate, setValidUntilDate] = useState<Date | null>(null);
+  const [webValidUntilStr, setWebValidUntilStr] = useState('');
+
   const [pickedFile, setPickedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [saving, setSaving] = useState(false);
+  const [avatarSlotHeight, setAvatarSlotHeight] = useState(160);
+
+  const isWeb = Platform.OS === 'web';
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -74,16 +123,20 @@ export function SudijaDetailView({ userId, onBack }: Props) {
     }
     const payload = (rpcData ?? null) as Payload | null;
     setData(payload);
-    setLicenseNumber(payload?.license?.license_number ?? '');
-    setValidUntil(payload?.license?.license_valid_until ?? '');
+    const lic = payload?.license;
+    setLicenseNumber(lic?.license_number ?? '');
+    const parsed = parseYyyyMmDd(lic?.license_valid_until ?? null);
+    setValidUntilDate(parsed);
+    setWebValidUntilStr(lic?.license_valid_until?.trim().slice(0, 10) ?? '');
     setPickedFile(null);
+    setLicenseEditorOpen(false);
     setLoading(false);
   }, [userId]);
 
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
   const onPickPdf = async () => {
@@ -93,11 +146,26 @@ export function SudijaDetailView({ userId, onBack }: Props) {
 
   const onSave = async () => {
     if (!userId) return;
-    const trimmedNumber = licenseNumber.trim() || null;
-    const trimmedDate = validUntil.trim() || null;
 
-    if (!trimmedNumber && !trimmedDate && !pickedFile) {
-      setErrorMessage('Unesi broj, datum ili izaberi PDF.');
+    let trimmedDate: string | null = null;
+    if (isWeb) {
+      const ws = webValidUntilStr.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ws)) {
+        setErrorMessage('Datum važenja licence (GGGG-MM-DD) je obavezan.');
+        return;
+      }
+      trimmedDate = ws;
+    } else {
+      if (!validUntilDate) {
+        setErrorMessage('Datum važenja licence je obavezan.');
+        return;
+      }
+      trimmedDate = toYyyyMmDd(validUntilDate);
+    }
+
+    const trimmedNumber = licenseNumber.trim() || null;
+    if (!trimmedNumber && !pickedFile && !data?.license?.license_file_path) {
+      setErrorMessage('Unesi broj licence ili izaberi PDF.');
       return;
     }
 
@@ -129,6 +197,7 @@ export function SudijaDetailView({ userId, onBack }: Props) {
 
     setSaving(false);
     setPickedFile(null);
+    setLicenseEditorOpen(false);
     await load();
   };
 
@@ -137,21 +206,83 @@ export function SudijaDetailView({ userId, onBack }: Props) {
   const leagues = data?.leagues ?? [];
   const canManage = data?.can_manage ?? false;
 
+  const displayTitle =
+    p?.display_name ||
+    [p?.first_name, p?.last_name].filter(Boolean).join(' ') ||
+    p?.username ||
+    'Sudija';
+
+  const chromeItems = useMemo<BreadcrumbItem[]>(() => {
+    const items: BreadcrumbItem[] = [{ label: 'Regije', path: '/savez' }];
+    const l = leagues[0];
+    if (l?.region_id != null) {
+      items.push({
+        label: l.region_name ?? `Regija #${l.region_id}`,
+        path: `/savez/regija/${l.region_id}`,
+      });
+    }
+    if (l?.league_id != null) {
+      items.push({
+        label: l.league_name ?? `Liga #${l.league_id}`,
+        path: `/savez/liga/${l.league_id}`,
+      });
+    }
+    items.push({ label: displayTitle });
+    return items;
+  }, [displayTitle, leagues]);
+
+  useSyncTakmicenjeDrillChrome(syncDrillChrome && Boolean(p) && !loading, displayTitle, chromeItems);
+
+  const licenseFormBlock = canManage && licenseEditorOpen ? (
+    <>
+      <ThemedView style={styles.divider} />
+      <ThemedText type="defaultSemiBold">Podaci licence</ThemedText>
+      <ThemedTextInput
+        value={licenseNumber}
+        onChangeText={setLicenseNumber}
+        placeholder="Broj licence"
+        style={styles.inputSpacing}
+      />
+
+      <ThemedText style={[styles.fieldHint, { color: colors.textSecondary }]}>
+        Datum važenja (obavezno{isWeb ? ', GGGG-MM-DD' : ''})
+      </ThemedText>
+      <LicenseValidUntilField
+        value={isWeb ? webValidUntilStr : validUntilDate ? toYyyyMmDd(validUntilDate) : ''}
+        onChange={(s) => {
+          const slice = s.trim().slice(0, 10);
+          setWebValidUntilStr(slice);
+          setValidUntilDate(parseYyyyMmDd(slice));
+        }}
+        style={styles.inputSpacing}
+      />
+
+      <Pressable style={styles.filledButton} onPress={onPickPdf}>
+        <ThemedText style={styles.filledButtonText}>
+          {pickedFile ? `PDF: ${pickedFile.name}` : 'Izaberi PDF'}
+        </ThemedText>
+      </Pressable>
+      <Pressable
+        style={[styles.filledButton, styles.saveFilled, saving && styles.buttonDisabled]}
+        onPress={onSave}
+        disabled={saving}>
+        {saving ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <ThemedText style={styles.filledButtonText}>Sačuvaj licencu</ThemedText>
+        )}
+      </Pressable>
+    </>
+  ) : null;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {onBack ? (
-        <Pressable style={styles.backButton} onPress={onBack}>
-          <ThemedText style={styles.backText}>← Nazad</ThemedText>
-        </Pressable>
+      {!syncDrillChrome ? (
+        <>
+          <ThemedText type="title">{displayTitle}</ThemedText>
+          <ThemedText style={styles.muted}>Profil sudije</ThemedText>
+        </>
       ) : null}
-
-      <ThemedText type="title">
-        {p?.display_name ||
-          [p?.first_name, p?.last_name].filter(Boolean).join(' ') ||
-          p?.username ||
-          'Sudija'}
-      </ThemedText>
-      <ThemedText style={styles.muted}>Profil sudije i licenca</ThemedText>
 
       {loading ? <ActivityIndicator /> : null}
 
@@ -163,84 +294,122 @@ export function SudijaDetailView({ userId, onBack }: Props) {
 
       {!loading && p ? (
         <>
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Licni podaci</ThemedText>
-            <ThemedText>Username: {p.username ?? '-'}</ThemedText>
-            <ThemedText>Ime: {p.first_name ?? '-'}</ThemedText>
-            <ThemedText>Prezime: {p.last_name ?? '-'}</ThemedText>
-            <ThemedText>Datum rodjenja: {p.birth_date ?? '-'}</ThemedText>
-            <ThemedText>Adresa: {p.address ?? '-'}</ThemedText>
-            <ThemedText>Telefon: {p.phone ?? '-'}</ThemedText>
+          <ThemedView style={[styles.card, styles.profileCard]}>
+            <View style={styles.profileRow}>
+              <View
+                style={styles.avatarCol}
+                onLayout={(e) => setAvatarSlotHeight(e.nativeEvent.layout.height)}>
+                <MaterialIcons
+                  name="person"
+                  size={Math.min(
+                    Math.max(Math.round(avatarSlotHeight * 0.9), 56),
+                    160,
+                  )}
+                  color={colors.tint}
+                />
+              </View>
+              <View style={styles.profileData}>
+                <ThemedText type="subtitle">Lični podaci</ThemedText>
+                <ThemedText>Username: {p.username ?? '-'}</ThemedText>
+                <ThemedText>Ime: {p.first_name ?? '-'}</ThemedText>
+                <ThemedText>Prezime: {p.last_name ?? '-'}</ThemedText>
+                <ThemedText>Datum rođenja: {p.birth_date ?? '-'}</ThemedText>
+                <ThemedText>Adresa: {p.address ?? '-'}</ThemedText>
+                <ThemedText>Telefon: {p.phone ?? '-'}</ThemedText>
+              </View>
+            </View>
           </ThemedView>
 
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Lige ({leagues.length})</ThemedText>
-            {leagues.length === 0 ? (
-              <ThemedText>Sudija nije dodeljen nijednoj ligi.</ThemedText>
-            ) : null}
-            {leagues.map((l) => (
-              <ThemedText key={l.league_id}>
-                {l.league_name ?? `Liga #${l.league_id}`}
-                {l.region_name ? `  •  ${l.region_name}` : ''}
+          <View style={styles.chipRow}>
+            <Pressable
+              onPress={() => setLigaExpanded((v) => !v)}
+              style={[
+                styles.chipFilled,
+                {
+                  backgroundColor: ligaExpanded ? ActionAccentHex : colors.surfaceMuted,
+                },
+              ]}>
+              <ThemedText
+                type="defaultSemiBold"
+                style={{ color: ligaExpanded ? '#fff' : colors.text }}>
+                Liga
               </ThemedText>
-            ))}
-          </ThemedView>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                setLicencaExpanded((v) => {
+                  if (v) setLicenseEditorOpen(false);
+                  return !v;
+                })
+              }
+              style={[
+                styles.chipFilled,
+                {
+                  backgroundColor: licencaExpanded ? ActionAccentHex : colors.surfaceMuted,
+                },
+              ]}>
+              <ThemedText
+                type="defaultSemiBold"
+                style={{ color: licencaExpanded ? '#fff' : colors.text }}>
+                Licenca
+              </ThemedText>
+            </Pressable>
+          </View>
 
-          <ThemedView style={styles.card}>
-            <ThemedText type="subtitle">Licenca</ThemedText>
-            <ThemedText>Broj licence: {lic?.license_number ?? '-'}</ThemedText>
-            <ThemedText>Vazi do: {lic?.license_valid_until ?? '-'}</ThemedText>
-            <ThemedText>Fajl: {lic?.license_file_path ?? '-'}</ThemedText>
-            {lic?.license_file_path ? (
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => openLicensePdf(lic.license_file_path)}>
-                <ThemedText style={styles.secondaryButtonText}>Otvori PDF</ThemedText>
-              </Pressable>
-            ) : null}
+          {ligaExpanded ? (
+            <ThemedView style={styles.expandCard}>
+              <ThemedText type="defaultSemiBold">Pripadnost ligama</ThemedText>
+              {leagues.length === 0 ? (
+                <ThemedText>Sudija nije dodeljen nijednoj ligi.</ThemedText>
+              ) : (
+                leagues.map((l) => (
+                  <ThemedText key={l.league_id}>
+                    {l.league_name ?? `Liga #${l.league_id}`}
+                    {l.region_name ? `  •  ${l.region_name}` : ''}
+                  </ThemedText>
+                ))
+              )}
+            </ThemedView>
+          ) : null}
 
-            {canManage ? (
-              <>
-                <ThemedView style={styles.divider} />
-                <ThemedText type="defaultSemiBold">
-                  {lic?.license_file_path ? 'Azuriraj licencu' : 'Dodaj licencu'}
-                </ThemedText>
-                <TextInput
-                  value={licenseNumber}
-                  onChangeText={setLicenseNumber}
-                  placeholder="Broj licence"
-                  placeholderTextColor="#888"
-                  style={styles.input}
-                />
-                <TextInput
-                  value={validUntil}
-                  onChangeText={setValidUntil}
-                  placeholder="Vazi do (YYYY-MM-DD)"
-                  placeholderTextColor="#888"
-                  style={styles.input}
-                />
-                <Pressable style={styles.secondaryButton} onPress={onPickPdf}>
-                  <ThemedText style={styles.secondaryButtonText}>
-                    {pickedFile ? `PDF: ${pickedFile.name}` : 'Izaberi PDF'}
+          {licencaExpanded ? (
+            <ThemedView style={styles.expandCard}>
+              {lic?.license_number || lic?.license_valid_until || lic?.license_file_path ? (
+                <>
+                  <ThemedText type="defaultSemiBold">Pregled licence</ThemedText>
+                  <ThemedText>Broj licence: {lic?.license_number ?? '-'}</ThemedText>
+                  <ThemedText>Važi do: {lic?.license_valid_until ?? '-'}</ThemedText>
+                  <ThemedText style={styles.fileHint}>Fajl: {lic?.license_file_path ?? '-'}</ThemedText>
+                  {lic?.license_file_path ? (
+                    <Pressable style={styles.filledButton} onPress={() => openLicensePdf(lic.license_file_path)}>
+                      <ThemedText style={styles.filledButtonText}>Otvori PDF</ThemedText>
+                    </Pressable>
+                  ) : null}
+                </>
+              ) : (
+                <ThemedText style={styles.muted}>Nema unete licence.</ThemedText>
+              )}
+
+              {canManage ? (
+                <Pressable style={styles.filledButton} onPress={() => setLicenseEditorOpen((v) => !v)}>
+                  <ThemedText style={styles.filledButtonText}>
+                    {licenseEditorOpen
+                      ? 'Zatvori formu'
+                      : lic?.license_file_path || lic?.license_number
+                        ? 'Izmeni licencu'
+                        : 'Dodaj licencu'}
                   </ThemedText>
                 </Pressable>
-                <Pressable
-                  style={[styles.primaryButton, saving && styles.buttonDisabled]}
-                  onPress={onSave}
-                  disabled={saving}>
-                  {saving ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <ThemedText style={styles.primaryButtonText}>Sacuvaj licencu</ThemedText>
-                  )}
-                </Pressable>
-              </>
-            ) : (
-              <ThemedText style={styles.muted}>
-                Samo delegat lige i savez mogu da menjaju licencu sudije.
-              </ThemedText>
-            )}
-          </ThemedView>
+              ) : (
+                <ThemedText style={styles.muted}>
+                  Samo delegat lige i savez mogu da menjaju licencu sudije.
+                </ThemedText>
+              )}
+
+              {licenseFormBlock}
+            </ThemedView>
+          ) : null}
+
         </>
       ) : null}
     </ScrollView>
@@ -249,45 +418,61 @@ export function SudijaDetailView({ userId, onBack }: Props) {
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 32 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  backText: { fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
-  divider: { height: 1, backgroundColor: '#ccc', marginVertical: 6 },
-  muted: { color: '#888', fontStyle: 'italic' },
-  errorText: { color: '#c53939' },
-  input: {
+  card: {
     borderWidth: 1,
     borderColor: '#666',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: '#111',
-    backgroundColor: '#fff',
+    padding: 10,
+    gap: 6,
   },
-  primaryButton: {
+  profileCard: { paddingVertical: 12 },
+  profileRow: {
+    flexDirection: 'row',
+    gap: 14,
+    alignItems: 'stretch',
+  },
+  avatarCol: {
+    width: 112,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileData: { flex: 1, gap: 4 },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  chipFilled: {
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 22,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expandCard: {
+    borderWidth: 1,
+    borderColor: '#666',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  fieldHint: { fontSize: 13, marginTop: 4 },
+  fileHint: { fontSize: 12 },
+  filledButton: {
     minHeight: 44,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
+    paddingHorizontal: 14,
+    backgroundColor: ActionAccentHex,
   },
-  primaryButtonText: { color: '#fff', fontWeight: '600' },
-  secondaryButton: {
-    borderWidth: 1,
-    borderColor: '#0a7ea4',
-    borderRadius: 8,
-    minHeight: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  secondaryButtonText: { color: '#0a7ea4', fontWeight: '600' },
+  saveFilled: { marginTop: 4 },
+  filledButtonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  divider: { height: 1, backgroundColor: '#ccc', marginVertical: 6 },
+  muted: { color: '#888', fontStyle: 'italic' },
+  errorText: { color: '#c53939' },
+  inputSpacing: { marginTop: 6 },
   buttonDisabled: { opacity: 0.6 },
 });

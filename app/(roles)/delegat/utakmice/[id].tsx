@@ -1,10 +1,15 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
 import { SearchableSelect, SelectOption } from '@/components/shared/searchable-select';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { formatMatchDisplayStatus } from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
 
 type SudijaRow = {
@@ -31,6 +36,7 @@ type MatchRow = {
   scheduled_at: string;
   venue: string | null;
   status: string;
+  display_status?: string | null;
   home_club_id: number;
   home_club_name: string | null;
   away_club_id: number;
@@ -143,12 +149,14 @@ export default function DelegatUtakmiceScreen() {
     setSavingMatchId(null);
   };
 
+  useScreenPullRefresh(load);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
-      <ThemedText type="title">Raspored sudija</ThemedText>
+      <ThemedText type="title">Upravljaj utakmicama</ThemedText>
       <ThemedText>Dodeli do 2 sudije po utakmici. Slobodno menjaj izbor.</ThemedText>
 
       {loading ? <ActivityIndicator /> : null}
@@ -165,55 +173,63 @@ export default function DelegatUtakmiceScreen() {
         </ThemedView>
       ) : null}
 
-      {matches.map((m) => {
-        const slot0 = m.sudije[0]?.user_id ?? null;
-        const slot1 = m.sudije[1]?.user_id ?? null;
-        const isBusy = savingMatchId === m.id;
+      {!loading && matches.length > 0 ? (
+        <MatchTimetableCalendar
+          matches={matches}
+          onMatchPress={(m) => router.push(`/delegat/utakmica/${m.id}` as never)}
+          renderMatch={(m) => {
+            const slot0 = m.sudije[0]?.user_id ?? null;
+            const slot1 = m.sudije[1]?.user_id ?? null;
+            const isBusy = savingMatchId === m.id;
 
-        return (
-          <ThemedView key={m.id} style={styles.matchCard}>
-            <ThemedText type="defaultSemiBold">
-              {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
-            </ThemedText>
-            <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-            {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
-            {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-            <ThemedText>Status: {m.status}</ThemedText>
-            {m.home_score !== null && m.away_score !== null ? (
-              <ThemedText>Rezultat: {m.home_score} - {m.away_score}</ThemedText>
-            ) : null}
+            return (
+              <ThemedView style={styles.matchCard}>
+                <ThemedText type="defaultSemiBold">
+                  {m.home_club_name ?? `#${m.home_club_id}`} vs {m.away_club_name ?? `#${m.away_club_id}`}
+                </ThemedText>
+                <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
+                {m.group_name ? <ThemedText>Grupa: {m.group_name}</ThemedText> : null}
+                {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
+                <ThemedText>Status: {formatMatchDisplayStatus(m)}</ThemedText>
+                {m.home_score !== null && m.away_score !== null ? (
+                  <ThemedText>
+                    Rezultat: {m.home_score} - {m.away_score}
+                  </ThemedText>
+                ) : null}
 
-            <ThemedText style={styles.subLabel}>Sudije</ThemedText>
-            <ThemedView style={styles.selectsRow}>
-              <SearchableSelect
-                label="Sudija 1"
-                placeholder="Izaberi sudiju"
-                options={sudijaOptions}
-                value={slot0}
-                disabledValues={slot1 ? [slot1] : []}
-                onChange={(v) => onChangeSlot(m, 0, v)}
-              />
-              <SearchableSelect
-                label="Sudija 2"
-                placeholder="Izaberi sudiju"
-                options={sudijaOptions}
-                value={slot1}
-                disabledValues={slot0 ? [slot0] : []}
-                onChange={(v) => onChangeSlot(m, 1, v)}
-              />
-            </ThemedView>
+                <ThemedText style={styles.subLabel}>Sudije</ThemedText>
+                <ThemedView style={styles.selectsRow}>
+                  <SearchableSelect
+                    label="Sudija 1"
+                    placeholder="Izaberi sudiju"
+                    options={sudijaOptions}
+                    value={slot0}
+                    disabledValues={slot1 ? [slot1] : []}
+                    onChange={(v) => onChangeSlot(m, 0, v)}
+                  />
+                  <SearchableSelect
+                    label="Sudija 2"
+                    placeholder="Izaberi sudiju"
+                    options={sudijaOptions}
+                    value={slot1}
+                    disabledValues={slot0 ? [slot0] : []}
+                    onChange={(v) => onChangeSlot(m, 1, v)}
+                  />
+                </ThemedView>
 
-            <Pressable
-              style={styles.detailButton}
-              onPress={() => router.push(`/delegat/utakmica/${m.id}` as never)}>
-              <ThemedText style={styles.detailButtonText}>Uslovi i start utakmice →</ThemedText>
-            </Pressable>
+                <Pressable
+                  style={styles.detailButton}
+                  onPress={() => router.push(`/delegat/utakmica/${m.id}` as never)}>
+                  <ThemedText style={styles.detailButtonText}>Uslovi i start utakmice →</ThemedText>
+                </Pressable>
 
-            {isBusy ? <ActivityIndicator /> : null}
-          </ThemedView>
-        );
-      })}
-    </ScrollView>
+                {isBusy ? <ActivityIndicator /> : null}
+              </ThemedView>
+            );
+          }}
+        />
+      ) : null}
+    </RefreshableScrollView>
   );
 }
 
@@ -255,10 +271,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#0a7ea4',
+    borderColor: ActionAccentHex,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  detailButtonText: { color: '#0a7ea4', fontWeight: '600' },
+  detailButtonText: { color: ActionAccentHex, fontWeight: '600' },
 });

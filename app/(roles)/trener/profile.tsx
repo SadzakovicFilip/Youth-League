@@ -1,9 +1,14 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { router } from 'expo-router';
 
+import { ScreenShell } from '@/components/screen-shell';
+import { ThemeProfileToggle } from '@/components/theme-profile-toggle';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import { supabase } from '@/lib/supabase';
 
 type ProfileData = Record<string, string | number | boolean | null>;
@@ -12,8 +17,11 @@ export default function TrenerProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const accent = useThemeColor({}, 'accent');
+  const border = useThemeColor({}, 'border');
+  const danger = useThemeColor({}, 'danger');
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
 
@@ -38,11 +46,13 @@ export default function TrenerProfileScreen() {
 
     setProfile((data as ProfileData) ?? null);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
-    loadProfile();
-  }, []);
+    void loadProfile();
+  }, [loadProfile]);
+
+  useScreenPullRefresh(loadProfile);
 
   const onLogout = async () => {
     await supabase.auth.signOut();
@@ -50,41 +60,45 @@ export default function TrenerProfileScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedText type="title">Profil trenera</ThemedText>
+    <ScreenShell>
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ThemedText type="title">Profil trenera</ThemedText>
 
-      <Pressable style={styles.button} onPress={loadProfile}>
-        <ThemedText style={styles.buttonText}>Refresh</ThemedText>
-      </Pressable>
-      <Pressable style={styles.secondaryButton} onPress={onLogout}>
-        <ThemedText style={styles.secondaryButtonText}>Logout</ThemedText>
-      </Pressable>
+        <ThemeProfileToggle />
 
-      {loading ? (
-        <ThemedView style={styles.card}>
-          <ActivityIndicator />
-        </ThemedView>
-      ) : null}
+        <Pressable style={[styles.button, { borderColor: accent }]} onPress={loadProfile}>
+          <ThemedText style={[styles.buttonText, { color: accent }]}>Refresh</ThemedText>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, { borderColor: border }]} onPress={onLogout}>
+          <ThemedText style={styles.secondaryButtonText}>Logout</ThemedText>
+        </Pressable>
 
-      {errorMessage ? (
-        <ThemedView style={styles.card}>
-          <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-        </ThemedView>
-      ) : null}
+        {loading ? (
+          <ThemedView style={[styles.card, { borderColor: border }]}>
+            <ActivityIndicator />
+          </ThemedView>
+        ) : null}
 
-      {!loading && !errorMessage ? (
-        <ThemedView style={styles.card}>
-          <ThemedText type="subtitle">Licni podaci</ThemedText>
-          <ThemedText>Username: {String(profile?.username ?? '-')}</ThemedText>
-          <ThemedText>Display name: {String(profile?.display_name ?? '-')}</ThemedText>
-          <ThemedText>First name: {String(profile?.first_name ?? '-')}</ThemedText>
-          <ThemedText>Last name: {String(profile?.last_name ?? '-')}</ThemedText>
-          <ThemedText>Birth date: {String(profile?.birth_date ?? '-')}</ThemedText>
-          <ThemedText>Address: {String(profile?.address ?? '-')}</ThemedText>
-          <ThemedText>Phone: {String(profile?.phone ?? '-')}</ThemedText>
-        </ThemedView>
-      ) : null}
-    </ScrollView>
+        {errorMessage ? (
+          <ThemedView style={[styles.card, { borderColor: border }]}>
+            <ThemedText style={[styles.errorText, { color: danger }]}>{errorMessage}</ThemedText>
+          </ThemedView>
+        ) : null}
+
+        {!loading && !errorMessage ? (
+          <ThemedView style={[styles.card, { borderColor: border }]}>
+            <ThemedText type="subtitle">Licni podaci</ThemedText>
+            <ThemedText>Username: {String(profile?.username ?? '-')}</ThemedText>
+            <ThemedText>Display name: {String(profile?.display_name ?? '-')}</ThemedText>
+            <ThemedText>First name: {String(profile?.first_name ?? '-')}</ThemedText>
+            <ThemedText>Last name: {String(profile?.last_name ?? '-')}</ThemedText>
+            <ThemedText>Birth date: {String(profile?.birth_date ?? '-')}</ThemedText>
+            <ThemedText>Address: {String(profile?.address ?? '-')}</ThemedText>
+            <ThemedText>Phone: {String(profile?.phone ?? '-')}</ThemedText>
+          </ThemedView>
+        ) : null}
+      </RefreshableScrollView>
+    </ScreenShell>
   );
 }
 
@@ -96,19 +110,16 @@ const styles = StyleSheet.create({
   },
   button: {
     borderWidth: 1,
-    borderColor: '#0a7ea4',
     borderRadius: 8,
     minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonText: {
-    color: '#0a7ea4',
     fontWeight: '600',
   },
   secondaryButton: {
     borderWidth: 1,
-    borderColor: '#999',
     borderRadius: 8,
     minHeight: 40,
     alignItems: 'center',
@@ -119,12 +130,9 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 10,
     gap: 6,
   },
-  errorText: {
-    color: '#c53939',
-  },
+  errorText: {},
 });

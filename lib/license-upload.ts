@@ -53,6 +53,10 @@ export async function saveUserLicense(params: {
   licenseFilePath: string | null;
   licenseNumber: string | null;
 }): Promise<{ error: string | null }> {
+  if (!params.licenseFilePath?.trim()) {
+    return { error: 'Putanja PDF licence je obavezna.' };
+  }
+
   const { error } = await supabase.rpc('upsert_user_license', {
     p_user_id: params.userId,
     p_valid_until: params.validUntil,

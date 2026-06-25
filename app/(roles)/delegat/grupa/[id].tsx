@@ -1,6 +1,9 @@
+import { ActionAccentHex } from '@/constants/theme';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
@@ -80,8 +83,10 @@ export default function DelegatGrupaDetailScreen() {
     }, [load])
   );
 
+  useScreenPullRefresh(load);
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
         <ThemedText style={styles.backText}>← Nazad</ThemedText>
       </Pressable>
@@ -114,12 +119,16 @@ export default function DelegatGrupaDetailScreen() {
           <LeagueCompetitionView
             leagueId={group.league_id}
             singleGroupId={groupId}
-            onOpenPlayer={(uid) => router.push(`/delegat/korisnik/${uid}`)}
+            onOpenPlayer={(uid, cid) =>
+              router.push(
+                `/delegat/korisnik/${uid}${cid != null ? `?clubId=${cid}` : ''}` as never,
+              )
+            }
             onOpenClub={(cid) => router.push(`/delegat/klub/${cid}`)}
           />
         </>
       ) : null}
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
@@ -134,8 +143,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   backText: { fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#0a7ea4', borderRadius: 8, padding: 10, gap: 4 },
+  card: { borderWidth: 1, borderColor: ActionAccentHex, borderRadius: 8, padding: 10, gap: 4 },
   errorText: { color: '#c53939' },
-  hint: { color: '#0a7ea4', fontWeight: '600' },
+  hint: { color: ActionAccentHex, fontWeight: '600' },
   divider: { height: 1, backgroundColor: '#ddd', marginTop: 12, marginBottom: 4 },
 });

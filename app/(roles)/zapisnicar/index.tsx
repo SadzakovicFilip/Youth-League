@@ -1,17 +1,24 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useAppTheme } from '@/contexts/app-theme-context';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
+import {
+  MatchRichCard,
+  formatScore,
+  type MatchRichTheme,
+} from '@/components/shared/match-rich-card';
+import { MatchTimetableCalendar } from '@/components/shared/match-timetable-calendar';
+import { ScreenShell } from '@/components/screen-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import {
+  formatMatchDisplayStatus,
+  isMatchDisplayFinished,
+} from '@/lib/match-display-status';
 import { supabase } from '@/lib/supabase';
-
-type ProfileRow = {
-  username: string | null;
-  display_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-};
 
 type MatchRow = {
   id: number;
@@ -24,21 +31,43 @@ type MatchRow = {
   away_club_name: string | null;
   home_score: number | null;
   away_score: number | null;
+  display_status?: string | null;
 };
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return '-';
+function clubLabel(name: string | null, id: number): string {
+  return name?.trim() ? name.trim() : `#${id}`;
+}
+
+function matchHeadline(m: MatchRow): string {
+  return `${clubLabel(m.home_club_name, m.home_club_id)} — ${clubLabel(m.away_club_name, m.away_club_id)}`;
+}
+
+function formatMatchTimeSr(iso: string): string {
   try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
+    return new Date(iso).toLocaleTimeString('sr-Latn', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   } catch {
-    return iso;
+    return '';
   }
 }
 
 export default function ZapisnicarHomeScreen() {
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const { colors } = useAppTheme();
+  const matchRichTheme = useMemo<MatchRichTheme>(
+    () => ({
+      surfaceMuted: colors.surfaceMuted,
+      borderStrong: colors.borderStrong,
+      tint: colors.tint,
+      text: colors.text,
+      textSecondary: colors.textSecondary,
+      textMuted: colors.textMuted,
+      danger: colors.danger,
+    }),
+    [colors],
+  );
+
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -55,15 +84,9 @@ export default function ZapisnicarHomeScreen() {
       return;
     }
 
-    const [profileRes, matchesRes] = await Promise.all([
-      supabase.from('profiles').select('username, display_name, first_name, last_name').eq('id', user.id).maybeSingle(),
-      supabase.rpc('get_my_zapisnicar_matches'),
-    ]);
+    const matchesRes = await supabase.rpc('get_my_zapisnicar_matches');
 
-    if (profileRes.error) setErrorMessage(profileRes.error.message);
-    else setProfile(profileRes.data);
-
-    if (matchesRes.error) setErrorMessage((prev) => prev || matchesRes.error!.message);
+    if (matchesRes.error) setErrorMessage(matchesRes.error.message);
     else setMatches((matchesRes.data as MatchRow[]) ?? []);
 
     setLoading(false);
@@ -72,129 +95,79 @@ export default function ZapisnicarHomeScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
-  const onLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      Alert.alert('Logout greska', error.message);
-      return;
+  useScreenPullRefresh(load);
+
+  const renderMatch = (m: MatchRow) => {
+    const headline = matchHeadline(m);
+    const statusLabel = formatMatchDisplayStatus(m);
+    const finishedLike = isMatchDisplayFinished(m);
+
+    if (finishedLike) {
+      return (
+        <MatchRichCard
+          variant="club_played"
+          theme={matchRichTheme}
+          oppName={headline}
+          headline={headline}
+          scheduledIso={m.scheduled_at}
+          scoreLine={formatScore(m.home_score, m.away_score)}
+          outcome={null}
+        />
+      );
     }
-    router.replace('/login');
+
+    return (
+      <MatchRichCard
+        variant="club_upcoming"
+        theme={matchRichTheme}
+        oppName={headline}
+        headline={headline}
+        scheduledIso={m.scheduled_at}
+        venue={m.venue}
+        status={statusLabel}
+        homeScore={m.home_score}
+        awayScore={m.away_score}
+        matchTime={formatMatchTimeSr(m.scheduled_at)}
+      />
+    );
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedView style={styles.headerRow}>
-        <ThemedText type="title">Zapisnicar</ThemedText>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
-          <ThemedText style={styles.logoutText}>Logout</ThemedText>
-        </Pressable>
-      </ThemedView>
+    <ScreenShell>
+      <RefreshableScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        {errorMessage ? (
+          <ThemedView style={[styles.errorCard, { borderColor: colors.borderStrong }]}>
+            <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
+          </ThemedView>
+        ) : null}
 
-      {errorMessage ? (
-        <ThemedView style={styles.errorCard}>
-          <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-        </ThemedView>
-      ) : null}
+        {loading ? <ActivityIndicator color={colors.tint} /> : null}
 
-      {profile ? (
-        <ThemedView style={styles.card}>
-          <ThemedText type="defaultSemiBold">
-            {profile.display_name ||
-              [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
-              'Zapisnicar'}
-          </ThemedText>
-          <ThemedText>Username: {profile.username ?? '-'}</ThemedText>
-        </ThemedView>
-      ) : null}
+        {!loading && matches.length === 0 ? (
+          <ThemedView style={[styles.card, { borderColor: colors.borderStrong }]}>
+            <ThemedText style={{ color: colors.textSecondary }}>Nema dodeljenih utakmica.</ThemedText>
+          </ThemedView>
+        ) : null}
 
-      <Pressable style={styles.refreshButton} onPress={load}>
-        <ThemedText style={styles.refreshText}>Refresh</ThemedText>
-      </Pressable>
-
-      <ThemedText type="subtitle">Moje utakmice</ThemedText>
-
-      {loading ? <ActivityIndicator /> : null}
-
-      {!loading && matches.length === 0 ? (
-        <ThemedView style={styles.card}>
-          <ThemedText>Nema dodeljenih utakmica.</ThemedText>
-        </ThemedView>
-      ) : null}
-
-      {matches.map((m) => {
-        const isLive = m.status === 'live';
-        const isFinished = m.status === 'finished';
-        return (
-          <Pressable
-            key={m.id}
-            style={[styles.matchCard, isLive && styles.matchCardLive, isFinished && styles.matchCardFinished]}
-            onPress={() => router.push(`/zapisnicar/utakmica/${m.id}` as never)}>
-            <ThemedText type="defaultSemiBold">
-              {m.home_club_name ?? '-'} vs {m.away_club_name ?? '-'}
-            </ThemedText>
-            <ThemedText>Termin: {formatDate(m.scheduled_at)}</ThemedText>
-            {m.venue ? <ThemedText>Mesto: {m.venue}</ThemedText> : null}
-            <ThemedText>
-              Status:{' '}
-              <ThemedText
-                style={[
-                  isLive && styles.statusLive,
-                  isFinished && styles.statusFinished,
-                ]}>
-                {m.status}
-              </ThemedText>
-            </ThemedText>
-            {m.home_score !== null && m.away_score !== null ? (
-              <ThemedText>
-                Rezultat: {m.home_score} : {m.away_score}
-              </ThemedText>
-            ) : null}
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+        {!loading && matches.length > 0 ? (
+          <MatchTimetableCalendar
+            matches={matches}
+            onMatchPress={(m) => router.push(`/zapisnicar/utakmica/${m.id}` as never)}
+            renderMatch={renderMatch}
+            daySelectSoundId="ballBounce2"
+          />
+        ) : null}
+      </RefreshableScrollView>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  logoutButton: {
-    borderWidth: 1,
-    borderColor: '#c53939',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  logoutText: { color: '#c53939', fontWeight: '600' },
-  refreshButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#0a7ea4',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  refreshText: { color: '#0a7ea4', fontWeight: '600' },
-  card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
-  errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
+  card: { borderWidth: 1, borderRadius: 10, padding: 12 },
+  errorCard: { borderWidth: 1, borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },
-  matchCard: {
-    borderWidth: 1,
-    borderColor: '#666',
-    borderRadius: 10,
-    padding: 12,
-    gap: 4,
-  },
-  matchCardLive: { borderColor: '#0a7ea4', backgroundColor: '#eef7fb' },
-  matchCardFinished: { opacity: 0.6 },
-  statusLive: { color: '#0a7ea4', fontWeight: '700' },
-  statusFinished: { color: '#666' },
 });

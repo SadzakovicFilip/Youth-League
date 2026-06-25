@@ -9,8 +9,11 @@ export default function SavezKlubDetailScreen() {
   return (
     <ClubTeamView
       clubId={clubId}
-      onBack={() => router.back()}
-      onOpenUser={(userId) => router.push(`/savez/korisnik/${userId}`)}
+      showMemberFees={false}
+      onOpenUser={(userId, cid) =>
+        router.push(`/savez/korisnik/${userId}?clubId=${cid}` as never)
+      }
+      syncDrillChrome
     />
   );
 }

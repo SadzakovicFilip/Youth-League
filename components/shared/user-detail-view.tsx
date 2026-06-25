@@ -1,7 +1,10 @@
-import { useCallback, useState } from 'react';
+import { ActionAccentHex } from '@/constants/theme';
+import { useSyncTakmicenjeDrillChrome } from '@/contexts/takmicenje-drill-chrome-context';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
+import type { BreadcrumbItem } from '@/components/savez/savez-breadcrumbs';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { openLicensePdf } from '@/lib/license-viewer';
@@ -98,11 +101,13 @@ type StatsPayload = {
 
 export type UserDetailViewProps = {
   userId: string;
-  onBack?: () => void;
-  showBackButton?: boolean;
+  syncDrillChrome?: boolean;
 };
 
-export function UserDetailView({ userId, onBack, showBackButton = true }: UserDetailViewProps) {
+export function UserDetailView({
+  userId,
+  syncDrillChrome = false,
+}: UserDetailViewProps) {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<Payload | null>(null);
@@ -151,17 +156,37 @@ export function UserDetailView({ userId, onBack, showBackButton = true }: UserDe
   const memberships = data?.memberships ?? [];
   const canViewSensitive = data?.can_view_sensitive ?? false;
 
+  const displayTitle =
+    p?.display_name || [p?.first_name, p?.last_name].filter(Boolean).join(' ') || p?.username || 'Korisnik';
+
+  const chromeItems = useMemo<BreadcrumbItem[]>(() => {
+    const items: BreadcrumbItem[] = [{ label: 'Regije', path: '/savez' }];
+    const m = memberships[0];
+    if (m?.region_id != null) {
+      items.push({
+        label: m.region_name ?? `Regija #${m.region_id}`,
+        path: `/savez/regija/${m.region_id}`,
+      });
+    }
+    if (m?.league_id != null) {
+      items.push({
+        label: m.league_name ?? `Liga #${m.league_id}`,
+        path: `/savez/liga/${m.league_id}`,
+      });
+    }
+    items.push({ label: displayTitle });
+    return items;
+  }, [displayTitle, memberships]);
+
+  useSyncTakmicenjeDrillChrome(syncDrillChrome && Boolean(p) && !loading, displayTitle, chromeItems);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {showBackButton && onBack ? (
-        <Pressable style={styles.backButton} onPress={onBack}>
-          <ThemedText style={styles.backText}>← Nazad</ThemedText>
-        </Pressable>
+      {!syncDrillChrome ? (
+        <>
+          <ThemedText type="title">{displayTitle}</ThemedText>
+        </>
       ) : null}
-
-      <ThemedText type="title">
-        {p?.display_name || [p?.first_name, p?.last_name].filter(Boolean).join(' ') || p?.username || 'Korisnik'}
-      </ThemedText>
 
       {loading ? <ActivityIndicator /> : null}
 
@@ -314,15 +339,6 @@ function formatDate(iso: string | null | undefined) {
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  backText: { fontWeight: '600' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 6 },
   errorText: { color: '#c53939' },
   muted: { color: '#888', fontStyle: 'italic' },
@@ -331,7 +347,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a7ea4',
+    backgroundColor: ActionAccentHex,
   },
   primaryButtonText: { color: '#fff', fontWeight: '600' },
 });

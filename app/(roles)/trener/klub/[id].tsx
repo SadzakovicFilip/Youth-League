@@ -9,8 +9,11 @@ export default function TrenerKlubDetailScreen() {
   return (
     <ClubTeamView
       clubId={clubId}
-      onBack={() => router.back()}
-      onOpenUser={(userId) => router.push(`/trener/korisnik/${userId}`)}
+      showMemberFees={false}
+      showLicenseRow={false}
+      onOpenUser={(userId, cid) =>
+        router.push(`/trener/korisnik/${userId}?clubId=${cid}` as never)
+      }
     />
   );
 }

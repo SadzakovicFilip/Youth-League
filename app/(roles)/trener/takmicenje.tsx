@@ -1,6 +1,8 @@
 import { router, useFocusEffect } from 'expo-router';
+import { useScreenPullRefresh } from '@/contexts/screen-pull-refresh-context';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { ActivityIndicator, StyleSheet } from 'react-native';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 
 import { LeagueCompetitionView } from '@/components/shared/league-competition-view';
 import { ThemedText } from '@/components/themed-text';
@@ -38,8 +40,8 @@ export default function TrenerTakmicenjeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      void load();
+    }, [load]),
   );
 
   const leagues = useMemo(() => {
@@ -52,14 +54,15 @@ export default function TrenerTakmicenjeScreen() {
     return Array.from(map.values());
   }, [rows]);
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <ThemedText style={styles.backText}>← Nazad</ThemedText>
-      </Pressable>
-      <ThemedText type="title">Takmicenje</ThemedText>
-      <ThemedText>Tabela i strelci u tvojoj ligi.</ThemedText>
+  const highlightClubId = useMemo(() => {
+    const mine = rows.find((r) => r.is_my_club);
+    return mine?.club_id ?? null;
+  }, [rows]);
 
+  useScreenPullRefresh(load);
+
+  return (
+    <RefreshableScrollView contentContainerStyle={styles.container}>
       {loading ? <ActivityIndicator /> : null}
 
       {errorMessage ? (
@@ -70,7 +73,7 @@ export default function TrenerTakmicenjeScreen() {
 
       {!loading && leagues.length === 0 ? (
         <ThemedView style={styles.card}>
-          <ThemedText>Klub trenera jos nije dodeljen ligi.</ThemedText>
+          <ThemedText>Klub trenera još nije dodeljen ligi.</ThemedText>
         </ThemedView>
       ) : null}
 
@@ -78,25 +81,22 @@ export default function TrenerTakmicenjeScreen() {
         <LeagueCompetitionView
           key={l.league_id}
           leagueId={l.league_id}
-          onOpenPlayer={(uid) => router.push(`/trener/korisnik/${uid}`)}
-          onOpenClub={(cid) => router.push(`/trener/klub/${cid}`)}
+          hideTitle
+          highlightClubId={highlightClubId}
+          onOpenPlayer={(uid, cid) =>
+            router.push(
+              `/trener/korisnik/${uid}${cid != null ? `?clubId=${cid}` : ''}` as never,
+            )
+          }
+          onOpenClub={(cid) => router.push(`/trener/klub/${cid}` as never)}
         />
       ))}
-    </ScrollView>
+    </RefreshableScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: 10, padding: 16, paddingBottom: 24 },
-  backButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  backText: { fontWeight: '600' },
   card: { borderWidth: 1, borderColor: '#666', borderRadius: 8, padding: 10, gap: 4 },
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 8, padding: 10 },
   errorText: { color: '#c53939' },

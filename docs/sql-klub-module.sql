@@ -834,7 +834,14 @@ as $$
       'display_name', p.display_name,
       'first_name',   p.first_name,
       'last_name',    p.last_name,
-      'phone',        p.phone
+      'phone',        p.phone,
+      'matches_officiated', (
+        select count(distinct mo.match_id)::int
+        from public.match_officials mo
+        inner join public.matches m on m.id = mo.match_id and m.league_id = p_league_id
+        where mo.user_id = ls.user_id
+          and mo.role::text = 'sudija'
+      )
     ) order by coalesce(p.display_name, p.last_name, p.username)
   ), '[]'::jsonb)
   from public.league_sudije ls
@@ -867,6 +874,19 @@ as $$
       'away_club_name', ac.name,
       'home_score',     m.home_score,
       'away_score',     m.away_score,
+      'objection_marker', (
+        case
+          when exists (
+            select 1 from public.match_objections mo
+            where mo.match_id = m.id and mo.resolution_status = 'pending'
+          ) then 'pending'
+          when exists (
+            select 1 from public.match_objections mo
+            where mo.match_id = m.id
+          ) then 'resolved'
+          else 'none'
+        end
+      ),
       'sudije', coalesce((
         select jsonb_agg(
           jsonb_build_object(
@@ -1938,6 +1958,7 @@ returns jsonb language plpgsql stable security definer set search_path = public 
 declare
   v_m record;
   v_is_zapisnicar boolean;
+  v_can_view boolean;
   v_result jsonb;
 begin
   select m.* into v_m from public.matches m where m.id = p_match_id;
@@ -1950,8 +1971,31 @@ begin
       and mo.role     = 'zapisnicar'::official_role
   );
 
-  if not (v_is_zapisnicar or public.has_role('admin') or public.has_role('savez')
-          or public.is_delegate_of_league(v_m.league_id)) then
+  v_can_view :=
+    v_is_zapisnicar
+    or public.has_role('admin')
+    or public.has_role('savez')
+    or public.is_delegate_of_league(v_m.league_id);
+
+  if not v_can_view then
+    v_can_view :=
+      exists (
+        select 1 from public.match_officials mo
+        where mo.match_id = p_match_id and mo.user_id = auth.uid()
+      )
+      or exists (
+        select 1 from public.club_memberships cm
+        where cm.user_id = auth.uid()
+          and cm.active = true
+          and cm.club_id in (v_m.home_club_id, v_m.away_club_id)
+      )
+      or exists (
+        select 1 from public.match_rosters mr
+        where mr.match_id = p_match_id and mr.user_id = auth.uid()
+      );
+  end if;
+
+  if not v_can_view then
     raise exception 'Nemate dozvolu da vidite ovu utakmicu';
   end if;
 
@@ -1973,7 +2017,19 @@ begin
     'is_zapisnicar', v_is_zapisnicar,
     'can_score', (v_is_zapisnicar and coalesce(v_m.status,'scheduled') = 'live'),
     'home_roster', public.fn_roster_with_stats(p_match_id, v_m.home_club_id),
-    'away_roster', public.fn_roster_with_stats(p_match_id, v_m.away_club_id)
+    'away_roster', public.fn_roster_with_stats(p_match_id, v_m.away_club_id),
+    'sudije', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'user_id', mo.user_id,
+        'display_name', p.display_name,
+        'first_name', p.first_name,
+        'last_name', p.last_name,
+        'username', p.username
+      ) order by mo.user_id)
+      from public.match_officials mo
+      left join public.profiles p on p.id = mo.user_id
+      where mo.match_id = p_match_id and mo.role = 'sudija'::official_role
+    ), '[]'::jsonb)
   ) into v_result;
   return v_result;
 end;
