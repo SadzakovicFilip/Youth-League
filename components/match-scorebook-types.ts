@@ -14,6 +14,8 @@ export type MatchScorebookDetailMatchInfo = {
   home_score: number | null;
   away_score: number | null;
   display_status?: string | null;
+  league_name?: string | null;
+  region_name?: string | null;
 };
 
 export type MatchScorebookOfficial = {
@@ -31,6 +33,7 @@ export type MatchScorebookRosterPlayer = {
   first_name: string | null;
   last_name: string | null;
   username: string | null;
+  license_number?: string | null;
   pts_ft: number;
   pts_2: number;
   pts_3: number;

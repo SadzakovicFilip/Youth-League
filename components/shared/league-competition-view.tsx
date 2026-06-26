@@ -440,14 +440,14 @@ export const LeagueCompetitionView = forwardRef<
     const ov = (ovRes.data ?? null) as OverviewPayload | null;
     setOverview(ov);
     const lsRes = await supabase.rpc("get_league_top_scorers", {
-      p_league_id: leagueId,
-      p_group_id: null,
-      p_limit: 100,
-    });
-    if (lsRes.error) {
-      setLeagueScorers(null);
-    } else {
-      setLeagueScorers((lsRes.data ?? null) as ScorersPayload | null);
+        p_league_id: leagueId,
+        p_group_id: null,
+        p_limit: 100,
+      });
+      if (lsRes.error) {
+        setLeagueScorers(null);
+      } else {
+        setLeagueScorers((lsRes.data ?? null) as ScorersPayload | null);
     }
     const firstGroup = singleGroupId ?? ov?.groups?.[0]?.id ?? null;
     let resolvedGroup: number | null = null;
@@ -495,7 +495,7 @@ export const LeagueCompetitionView = forwardRef<
   useEffect(() => {
     if (selectedGroupId == null) return;
     if (viewSegment === "strelci_lige") return;
-    loadGroup(selectedGroupId);
+      loadGroup(selectedGroupId);
   }, [selectedGroupId, viewSegment, loadGroup]);
 
   const groups = overview?.groups ?? [];
@@ -630,7 +630,7 @@ export const LeagueCompetitionView = forwardRef<
             />
           ) : null}
         </>
-      ) : null}
+          ) : null}
 
       {showViewChips &&
       viewSegment === "strelci_grupe" &&
@@ -717,15 +717,15 @@ function ScorerTablePremium({
         const mine = rowIsMineClub(r.club_id, highlightClubId);
         const zebra = idx % 2 === 1;
         return (
-          <Pressable
-            key={r.user_id}
+        <Pressable
+          key={r.user_id}
             style={[
               styles.dataRow,
               { borderTopColor: colors.border },
               mine ? styles.stMyClubRow : zebra ? { backgroundColor: ActionAccentWash } : null,
               mine ? styles.stMyClubRowLeft : null,
             ]}
-            disabled={!onOpenPlayer}
+          disabled={!onOpenPlayer}
             onPress={() =>
               onOpenPlayer?.(
                 r.user_id,
@@ -770,9 +770,9 @@ function ScorerTablePremium({
                   numberOfLines={1}
                 >
                   {r.club_name}
-                </ThemedText>
-              ) : null}
-            </View>
+              </ThemedText>
+            ) : null}
+          </View>
             <ThemedText
               style={[
                 styles.dCell,
@@ -800,7 +800,7 @@ function ScorerTablePremium({
             >
               {r.avg_points}
             </ThemedText>
-          </Pressable>
+        </Pressable>
         );
       })}
       <ThemedText style={[styles.tableFoot, { color: colors.textMuted }]}>

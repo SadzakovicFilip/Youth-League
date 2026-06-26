@@ -22,6 +22,7 @@ import {
   type MatchBoxScoreVariant,
 } from '@/components/match-finished-box-score-view';
 import { MatchScoreEventFlash } from '@/components/match-score-event-flash';
+import { FibaScoresheetSkeleton } from '@/components/fiba/fiba-scoresheet-skeleton';
 import { MatchScorebookLiveView } from '@/components/match-scorebook-live-view';
 import type { MatchScorebookPayload } from '@/components/match-scorebook-types';
 import {
@@ -50,6 +51,7 @@ export type {
 } from '@/components/match-scorebook-types';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { ZAPISNICAR_USE_FIBA_SCORESHEET } from '@/lib/scorebook-dev-flags';
 import { supabase } from '@/lib/supabase';
 
 export type MatchScorebookDetailViewHandle = {
@@ -62,6 +64,8 @@ export type MatchScorebookDetailViewProps = {
   /** Ispod hero kartice u box score-u (samo finished). */
   boxScoreBelowHero?: ReactNode;
   onAfterReload?: () => void | Promise<void>;
+  /** Zapisničar: uži AppChromeHeader dok vodi aktivan zapisnik (live / FIBA). */
+  compactChromeWhenLiveScoring?: boolean;
 };
 
 function isFinishedStatus(status: string | null | undefined) {
@@ -496,23 +500,38 @@ export const MatchScorebookDetailView = forwardRef<
   }, [serverData?.match.status, serverData?.can_score, serverData]);
 
   const finished = presentedData ? isFinishedStatus(presentedData.match.status) : false;
+  const showFibaScoresheet =
+    ZAPISNICAR_USE_FIBA_SCORESHEET &&
+    Boolean(presentedData?.is_zapisnicar) &&
+    !finished;
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.topPad}>
-        {topAccessory ? <View style={styles.accessoryWrap}>{topAccessory}</View> : null}
+    <View style={[styles.screen, showFibaScoresheet && styles.screenFiba]}>
+      {!showFibaScoresheet ? (
+        <View style={styles.topPad}>
+          {topAccessory ? <View style={styles.accessoryWrap}>{topAccessory}</View> : null}
 
-        {loading ? <ActivityIndicator /> : null}
-        {errorMessage ? (
-          <ThemedView style={styles.errorCard}>
-            <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
-          </ThemedView>
-        ) : null}
-      </View>
+          {loading ? <ActivityIndicator /> : null}
+          {errorMessage ? (
+            <ThemedView style={styles.errorCard}>
+              <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
+            </ThemedView>
+          ) : null}
+        </View>
+      ) : null}
 
       {presentedData && !loading ? (
-        <View style={styles.bodyFill}>
-          {finished ? (
+        <View style={[styles.bodyFill, showFibaScoresheet && styles.bodyFillFiba]}>
+          {showFibaScoresheet ? (
+            <>
+              {errorMessage ? (
+                <ThemedView style={[styles.errorCard, styles.fibaErrorOverlay]}>
+                  <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
+                </ThemedView>
+              ) : null}
+              <FibaScoresheetSkeleton data={presentedData} />
+            </>
+          ) : finished ? (
             <MatchFinishedBoxScoreView
               data={presentedData}
               variant="final"
@@ -548,6 +567,10 @@ export const MatchScorebookDetailView = forwardRef<
             />
           ) : null}
         </View>
+      ) : loading ? (
+        <View style={styles.loadingCenter}>
+          <ActivityIndicator />
+        </View>
       ) : null}
     </View>
   );
@@ -555,9 +578,13 @@ export const MatchScorebookDetailView = forwardRef<
 
 const styles = StyleSheet.create({
   bodyFill: { flex: 1 },
+  bodyFillFiba: { backgroundColor: '#fff' },
   accessoryWrap: { marginBottom: 4, gap: 6 },
   screen: { flex: 1 },
+  screenFiba: { backgroundColor: '#fff' },
   topPad: { paddingHorizontal: 8, paddingTop: 8 },
   errorCard: { borderWidth: 1, borderColor: '#c53939', borderRadius: 6, padding: 8, marginBottom: 4 },
+  fibaErrorOverlay: { marginHorizontal: 8, marginTop: 4, zIndex: 2 },
   errorText: { color: '#c53939', fontSize: 13 },
+  loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

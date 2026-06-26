@@ -52,14 +52,14 @@ type TeamMember = {
 
 type ClubTeamPayload = {
   context: {
-    club_id: number;
-    club_name: string;
-    league_id: number | null;
-    league_name: string | null;
-    region_id: number | null;
-    region_name: string | null;
-    group_id: number | null;
-    group_name: string | null;
+  club_id: number;
+  club_name: string;
+  league_id: number | null;
+  league_name: string | null;
+  region_id: number | null;
+  region_name: string | null;
+  group_id: number | null;
+  group_name: string | null;
     monthly_fee: number | null;
   } | null;
   players: TeamMember[];
@@ -235,7 +235,7 @@ export function ClubTeamView({
                 <MaterialIcons name="person" size={24} color={ActionAccentHex} />
                 <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.summaryNameFlex}>
                   {name}
-                </ThemedText>
+      </ThemedText>
               </View>
               {showFees && showMemberFees ? (
                 <View style={styles.summaryRow}>
@@ -264,9 +264,9 @@ export function ClubTeamView({
             </View>
             <MaterialIcons name="chevron-right" size={24} color={ActionAccentHex} style={styles.summaryChevron} />
           </View>
-        </Pressable>
+    </Pressable>
       </ThemedView>
-    );
+  );
   };
 
   return (
